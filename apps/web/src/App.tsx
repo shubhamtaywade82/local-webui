@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, LayoutDashboard, Settings, Menu, X } from 'lucide-react';
+import { Send, Bot, User, LayoutDashboard, Settings, Menu, X, ChevronDown, ChevronRight, Brain } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -17,8 +17,37 @@ type Message = {
   sources?: string[];
 };
 
+function ThinkingSection({ content }: { content: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+  if (!thinkMatch) return null;
+  const thinkContent = thinkMatch[1].trim();
+  if (!thinkContent) return null;
+
+  return (
+    <div className="mb-4 border border-gray-100 bg-gray-50/50 rounded-xl overflow-hidden transition-all duration-200">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-4 py-2 hover:bg-gray-100/50 transition-colors group"
+      >
+        <div className="flex items-center gap-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+          <Brain className="w-3.5 h-3.5 text-indigo-400" />
+          Thinking Process
+        </div>
+        {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" /> : <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-indigo-500" />}
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4 text-xs leading-relaxed text-gray-500 italic whitespace-pre-wrap border-t border-gray-100 pt-2 bg-white">
+          {thinkContent}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [model, setModel] = useState('llama3.2:3b');
+  const [isThinkingEnabled, setIsThinkingEnabled] = useState(false);
   const [models] = useState([
     'llama3.2:3b',
     'qwen3.5:4b',
@@ -32,7 +61,7 @@ export default function App() {
   const SUGGESTIONS = [
     { label: "Check Knowledge", prompt: "What documents are available in my local knowledge base?", icon: "📚" },
     { label: "Analyze Code", prompt: "Can you explain how the Sequelize models are defined in this project?", icon: "💻" },
-    { label: "Compare Models", prompt: "What are the strengths of llama3.2 versus qwen2.5 for local tasks?", icon: "⚖️" },
+    { label: "Test Thinking", prompt: "This is a test to see the thinking process.\n\n<think>I should demonstrate how the thinking block looks. It is usually inside tags like this and contains internal reasoning.</think>\n\nHere is the final answer you requested!", icon: "🧠" },
     { label: "Data Tasks", prompt: "Show me a sample SQL table for tracking user preferences.", icon: "📊" }
   ];
 
@@ -76,7 +105,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: model,
-          messages: newMessages
+          messages: newMessages,
+          thinking: isThinkingEnabled
         })
       });
 
@@ -175,17 +205,40 @@ export default function App() {
           </button>
         </div>
         
-        <div className="p-4 border-b border-gray-100">
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Local Model</label>
-          <select 
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
-          >
-            {models.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        <div className="p-4 border-b border-gray-100 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Local Model</label>
+            <select 
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+            >
+              {models.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between py-2">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-gray-700">Thinking Mode</span>
+              <span className="text-[10px] text-gray-400 leading-tight">Enforce step-by-step reasoning</span>
+            </div>
+            <button
+              onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
+              className={cn(
+                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none",
+                isThinkingEnabled ? "bg-indigo-600" : "bg-gray-200"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-3 w-3 transform rounded-full bg-white transition-transform",
+                  isThinkingEnabled ? "translate-x-5" : "translate-x-1"
+                )}
+              />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
@@ -240,6 +293,11 @@ export default function App() {
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   ) : (
                     <>
+                      {/* Thinking Block */}
+                      {m.content.includes('<think>') && (
+                        <ThinkingSection content={m.content} />
+                      )}
+
                       <div className="prose prose-slate prose-sm md:prose-base max-w-none prose-pre:bg-transparent prose-pre:p-0">
                         <ReactMarkdown 
                           remarkPlugins={[remarkGfm]}
@@ -287,7 +345,7 @@ export default function App() {
                             }
                           }}
                         >
-                          {m.content}
+                          {m.content.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, '').trim()}
                         </ReactMarkdown>
                       </div>
                       {m.sources && m.sources.length > 0 && (

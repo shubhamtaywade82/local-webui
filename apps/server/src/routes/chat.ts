@@ -33,9 +33,7 @@ export default async function routes(app: FastifyInstance) {
     }
 
     // 3. Prepare System Prompt
-    const systemPrompt = {
-      role: 'system',
-      content: `You are a local AI assistant. 
+    let systemPromptText = `You are a local AI assistant. 
 Use the following context if relevant to the question. 
 If not found in context, answer normally.
 
@@ -45,7 +43,25 @@ ${availableFiles.join(", ") || "No local files indexed."}
 ${historyContext}
 
 CONTEXT FROM DOCUMENTS:
-${contextString || "No specific content match found in local knowledge."}`
+${contextString || "No specific content match found in local knowledge."}`;
+
+    const { thinking } = req.body as { thinking?: boolean };
+    if (thinking) {
+      systemPromptText += `\n\nTHINKING MODE ENABLED:
+You MUST reason step-by-step before providing your final answer.
+Wrap your internal reasoning process entirely within <think>...</think> tags.
+Example:
+<think>
+I need to calculate X.
+Step 1: ...
+Step 2: ...
+</think>
+Final Answer: ...`;
+    }
+
+    const systemPrompt = {
+      role: 'system',
+      content: systemPromptText
     };
 
     const finalMessages = [systemPrompt, ...messages];
