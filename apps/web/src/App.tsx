@@ -52,10 +52,19 @@ export default function App() {
         })
       });
 
-      setMessages(m => [...m, { role: 'assistant', content: '' }]);
+      if (!res.ok) {
+        const text = await res.text();
+        setMessages(m => [...m, { role: 'assistant', content: `\n\n**Error:** Backend returned ${res.status} ${res.statusText}${text ? ` — ${text.slice(0, 200)}` : ''}` }]);
+        return;
+      }
 
       const reader = res.body?.getReader();
-      if (!reader) throw new Error("No body");
+      if (!reader) {
+        setMessages(m => [...m, { role: 'assistant', content: '\n\n**Error:** Server returned no response body.' }]);
+        return;
+      }
+
+      setMessages(m => [...m, { role: 'assistant', content: '' }]);
       
       const decoder = new TextDecoder();
       while (true) {
@@ -84,7 +93,10 @@ export default function App() {
       }
     } catch (error) {
       console.error(error);
-      setMessages(m => [...m, { role: 'assistant', content: '\n\n**Error:** Could not reach the local Ollama backend. Is it running?' }]);
+      const msg = error instanceof Error && error.name === 'TypeError' && error.message.includes('fetch')
+        ? 'Could not reach the local Ollama backend. Is it running?'
+        : `Error: ${error instanceof Error ? error.message : String(error)}`;
+      setMessages(m => [...m, { role: 'assistant', content: `\n\n**Error:** ${msg}` }]);
     } finally {
       setIsTyping(false);
     }

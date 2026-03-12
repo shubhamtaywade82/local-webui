@@ -7,6 +7,10 @@ const ollama = new OllamaClient();
 const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../knowledge"));
 
 export default async function routes(app: FastifyInstance) {
+  app.head("/", async (_req, res) => {
+    return res.status(200).send();
+  });
+
   app.post("/", async (req, res) => {
     const { messages, model } = req.body as { messages: any[]; model: string };
     const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content || "";
