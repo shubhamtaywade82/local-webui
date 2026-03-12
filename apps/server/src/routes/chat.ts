@@ -20,6 +20,7 @@ export default async function routes(app: FastifyInstance) {
 
     // 1. Retrieve Knowledge (RAG)
     const contextDocs = knowledge.retrieve(lastUserMessage);
+    const availableFiles = knowledge.listAll();
     const contextString = contextDocs.map(d => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
     // 2. Prepare Context (History)
@@ -38,13 +39,18 @@ export default async function routes(app: FastifyInstance) {
 Use the following context if relevant to the question. 
 If not found in context, answer normally.
 
+AVAILABLE LOCAL FILES:
+${availableFiles.join(", ") || "No local files indexed."}
+
 ${historyContext}
 
-CONTEXT:
-${contextString || "No relevant local knowledge found."}`
+CONTEXT FROM DOCUMENTS:
+${contextString || "No specific content match found in local knowledge."}`
     };
 
     const finalMessages = [systemPrompt, ...messages];
+    console.log(`[ChatRoute] Sending ${finalMessages.length} messages to Ollama. System prompt length: ${systemPrompt.content.length}`);
+    // console.log("[ChatRoute] System Prompt Content:", systemPrompt.content); // Uncomment for extreme debugging
 
     // Persist user message
     await db.saveMessage(currentConversationId, 'user', lastUserMessage);
@@ -54,13 +60,29 @@ ${contextString || "No relevant local knowledge found."}`
     res.raw.setHeader("Connection", "keep-alive");
 
     let fullAssistantResponse = "";
-    await ollama.stream(model || "qwen2.5:0.5b", finalMessages, (token) => {
-      fullAssistantResponse += token;
-      res.raw.write(`data: ${JSON.stringify({ token, conversation_id: currentConversationId })}\n\n`);
-    });
+    // Send sources first
+    console.log(`[ChatRoute] Found ${contextDocs.length} sources. Sending metadata...`);
+    res.raw.write(`data: ${JSON.stringify({ sources: contextDocs.map(d => d.path), conversation_id: currentConversationId })}\n\n`);
+
+    try {
+      console.log(`[ChatRoute] Starting Ollama stream for model: ${model || "qwen2.5:0.5b"}`);
+      await ollama.stream(model || "qwen2.5:0.5b", finalMessages, (token) => {
+        fullAssistantResponse += token;
+        res.raw.write(`data: ${JSON.stringify({ token, conversation_id: currentConversationId })}\n\n`);
+      });
+      console.log(`[ChatRoute] Ollama stream finished. Total tokens: ${fullAssistantResponse.length}`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[ChatRoute] Stream error: ${errorMsg}`);
+      res.raw.write(`data: ${JSON.stringify({ error: errorMsg, conversation_id: currentConversationId })}\n\n`);
+      res.raw.end();
+      return;
+    }
 
     // Persist assistant message
-    await db.saveMessage(currentConversationId, 'assistant', fullAssistantResponse);
+    if (fullAssistantResponse) {
+      await db.saveMessage(currentConversationId, 'assistant', fullAssistantResponse);
+    }
 
     res.raw.end();
   });

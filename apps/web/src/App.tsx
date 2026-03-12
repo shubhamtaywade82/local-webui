@@ -14,6 +14,7 @@ function cn(...inputs: ClassValue[]) {
 type Message = {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  sources?: string[];
 };
 
 export default function App() {
@@ -35,17 +36,18 @@ export default function App() {
     { label: "Data Tasks", prompt: "Show me a sample SQL table for tracking user preferences.", icon: "📊" }
   ];
 
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const applySuggestion = (p: string) => {
     setInput(p);
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
   };
-  const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -73,7 +75,7 @@ export default function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: model, // Using selected model
+          model: model,
           messages: newMessages
         })
       });
@@ -104,37 +106,36 @@ export default function App() {
           if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.token) {
+             if (data.token) {
               setMessages(m => {
                 const next = [...m];
                 const lastIdx = next.length - 1;
                 if (lastIdx >= 0) {
                   next[lastIdx] = { ...next[lastIdx], content: next[lastIdx].content + data.token };
+                }
+                return next;
+              });
+            } else if (data.sources) {
+              setMessages(m => {
+                const next = [...m];
+                const lastIdx = next.length - 1;
+                if (lastIdx >= 0) {
+                  next[lastIdx] = { ...next[lastIdx], sources: data.sources };
+                }
+                return next;
+              });
+            } else if (data.error) {
+              setMessages(m => {
+                const next = [...m];
+                const lastIdx = next.length - 1;
+                if (lastIdx >= 0) {
+                  next[lastIdx] = { ...next[lastIdx], content: next[lastIdx].content + `\n\n**Stream Error:** ${data.error}` };
                 }
                 return next;
               });
             }
           } catch (err) {
             // Ignore malformed JSON chunks
-          }
-        }
-      }
-      if (buffer.trim()) {
-        if (buffer.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(buffer.slice(6));
-            if (data.token) {
-              setMessages(m => {
-                const next = [...m];
-                const lastIdx = next.length - 1;
-                if (lastIdx >= 0) {
-                  next[lastIdx] = { ...next[lastIdx], content: next[lastIdx].content + data.token };
-                }
-                return next;
-              });
-            }
-          } catch (err) {
-            // ignore
           }
         }
       }
@@ -219,10 +220,7 @@ export default function App() {
         </header>
 
         {/* Chat Messages */}
-        <div 
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6"
-        >
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
           <div className="max-w-3xl mx-auto space-y-8">
             {messages.map((m, i) => (
               <div key={i} className={cn("flex gap-4", m.role === 'user' ? "justify-end" : "justify-start")}>
@@ -241,56 +239,71 @@ export default function App() {
                   {m.role === 'user' ? (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   ) : (
-                    <div className="prose prose-slate prose-sm md:prose-base max-w-none prose-pre:bg-transparent prose-pre:p-0">
-                      <ReactMarkdown 
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          code({ node, inline, className, children, ...props }: any) {
-                            const match = /language-(\w+)/.exec(className || '');
-                            return !inline && match ? (
-                              <div className="rounded-md overflow-hidden my-4 border border-gray-700">
-                                <div className="bg-gray-800 px-4 py-1.5 text-xs text-gray-400 flex justify-between items-center border-b border-gray-700">
-                                  <span>{match[1]}</span>
+                    <>
+                      <div className="prose prose-slate prose-sm md:prose-base max-w-none prose-pre:bg-transparent prose-pre:p-0">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code({ node, inline, className, children, ...props }: any) {
+                              const match = /language-(\w+)/.exec(className || '');
+                              return !inline && match ? (
+                                <div className="rounded-md overflow-hidden my-4 border border-gray-700">
+                                  <div className="bg-gray-800 px-4 py-1.5 text-xs text-gray-400 flex justify-between items-center border-b border-gray-700">
+                                    <span>{match[1]}</span>
+                                  </div>
+                                  <SyntaxHighlighter
+                                    style={vscDarkPlus}
+                                    language={match[1]}
+                                    PreTag="div"
+                                    customStyle={{ margin: 0, borderRadius: 0, padding: '1rem' }}
+                                    {...props}
+                                  >
+                                    {String(children).replace(/\n$/, '')}
+                                  </SyntaxHighlighter>
                                 </div>
-                                <SyntaxHighlighter
-                                  style={vscDarkPlus}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  customStyle={{ margin: 0, borderRadius: 0, padding: '1rem' }}
-                                  {...props}
-                                >
-                                  {String(children).replace(/\n$/, '')}
-                                </SyntaxHighlighter>
-                              </div>
-                            ) : (
-                              <code className={cn("bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600", className)} {...props}>
-                                {children}
-                              </code>
-                            );
-                          },
-                          table({ children }) {
-                            return (
-                              <div className="overflow-x-auto my-6 border border-gray-200 rounded-lg shadow-sm">
-                                <table className="min-w-full divide-y divide-gray-200">
+                              ) : (
+                                <code className={cn("bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600", className)} {...props}>
                                   {children}
-                                </table>
+                                </code>
+                              );
+                            },
+                            table({ children }) {
+                              return (
+                                <div className="overflow-x-auto my-6 border border-gray-200 rounded-lg shadow-sm">
+                                  <table className="min-w-full divide-y divide-gray-200">
+                                    {children}
+                                  </table>
+                                </div>
+                              );
+                            },
+                            thead({ children }) {
+                              return <thead className="bg-gray-50">{children}</thead>;
+                            },
+                            th({ children }) {
+                              return <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{children}</th>;
+                            },
+                            td({ children }) {
+                              return <td className="px-4 py-2 text-sm text-gray-700 border-t border-gray-100">{children}</td>;
+                            }
+                          }}
+                        >
+                          {m.content}
+                        </ReactMarkdown>
+                      </div>
+                      {m.sources && m.sources.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Sources</div>
+                          <div className="flex flex-wrap gap-2">
+                            {m.sources.map((source, sIdx) => (
+                              <div key={sIdx} className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-600 hover:bg-gray-100 transition-colors cursor-default">
+                                <span className="w-1 h-1 rounded-full bg-indigo-400" />
+                                {source.split('/').pop()}
                               </div>
-                            );
-                          },
-                          thead({ children }) {
-                            return <thead className="bg-gray-50">{children}</thead>;
-                          },
-                          th({ children }) {
-                            return <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{children}</th>;
-                          },
-                          td({ children }) {
-                            return <td className="px-4 py-2 text-sm text-gray-700 border-t border-gray-100">{children}</td>;
-                          }
-                        }}
-                      >
-                        {m.content}
-                      </ReactMarkdown>
-                    </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -334,34 +347,34 @@ export default function App() {
               </div>
             )}
             <div className="relative">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="Ask anything..."
-              className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none shadow-sm max-h-48"
-              rows={1}
-            />
-            <button 
-              onClick={send}
-              disabled={!input.trim() || isTyping}
-              className="absolute right-2 bottom-2 p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="text-center text-xs text-gray-400 mt-2">
-            AI can make mistakes. Consider verifying important information.
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Ask anything..."
+                className="w-full pl-4 pr-12 py-3 rounded-xl border border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none shadow-sm max-h-48"
+                rows={1}
+              />
+              <button 
+                onClick={send}
+                disabled={!input.trim() || isTyping}
+                className="absolute right-2 bottom-2 p-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-center text-xs text-gray-400 mt-2">
+              AI can make mistakes. Consider verifying important information.
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
   );
 }
