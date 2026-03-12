@@ -6,7 +6,7 @@ import { summarizeConversation } from "../services/summarizer";
 import path from "path";
 
 const ollama = new OllamaClient();
-const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../knowledge"));
+const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../options-buying-kb"));
 
 export default async function routes(app: FastifyInstance) {
   app.post("/", async (req, res) => {
@@ -19,7 +19,7 @@ export default async function routes(app: FastifyInstance) {
     }
 
     // 1. Retrieve Knowledge (RAG)
-    const contextDocs = knowledge.retrieve(lastUserMessage);
+    const contextDocs = await knowledge.retrieve(lastUserMessage);
     const availableFiles = knowledge.listAll();
     const contextString = contextDocs.map(d => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 

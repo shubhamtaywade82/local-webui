@@ -3,8 +3,10 @@ import { scanDocuments, DocumentNode } from "./documentIndex";
 import { chunkMarkdown, Chunk } from "./chunker";
 import { hybridSearch, ScoredChunk, SearchOptions } from "./search";
 import { buildContext, wrapPrompt } from "./contextBuilder";
-import { VectorStore } from "./vectorStore"; // We'll adapt vector store to be hierarchical if needed, but for now flat vectors for chunks is fine once doc is filtered
+import { VectorStore } from "./vectorStore"; 
 import { generateEmbedding } from "./embed";
+import { Pool } from "pg";
+import { retrievePersistent } from "./retrieve";
 
 export class KnowledgeEngine {
   private directories: DirectoryNode[] = [];
@@ -12,8 +14,12 @@ export class KnowledgeEngine {
   private chunkMap: Map<string, Chunk[]> = new Map(); // Doc path -> Chunks
   private vectorStore: VectorStore = new VectorStore();
   private isIndexing: boolean = false;
+  private pool: Pool;
 
   constructor(private root: string) {
+    this.pool = new Pool({
+      connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/ai_workspace"
+    });
     this.refresh().catch(err => console.error("KnowledgeEngine init failed:", err));
   }
 
@@ -22,6 +28,7 @@ export class KnowledgeEngine {
     this.isIndexing = true;
     
     try {
+      console.log(`[KnowledgeEngine] Refreshing from: ${this.root}`);
       this.directories = scanKnowledgeTree(this.root);
       this.documentMap.clear();
       this.chunkMap.clear();
@@ -32,20 +39,67 @@ export class KnowledgeEngine {
         this.documentMap.set(dir.path, docs);
 
         for (const doc of docs) {
-          const content = require('fs').readFileSync(doc.path, "utf8");
-          const chunks = chunkMarkdown(doc.path, content);
-          this.chunkMap.set(doc.path, chunks);
-          await this.vectorStore.addChunks(chunks);
+          try {
+            const content = require('fs').readFileSync(doc.path, "utf8");
+            const chunks = chunkMarkdown(doc.path, content);
+            this.chunkMap.set(doc.path, chunks);
+            await this.vectorStore.addChunks(chunks);
+          } catch (e) {
+            console.warn(`[KnowledgeEngine] Failed to read ${doc.path}:`, e);
+          }
         }
       }
+      console.log(`[KnowledgeEngine] Refresh complete. Indexed ${this.directories.length} dirs, ${this.getStats().totalDocuments} docs.`);
     } finally {
       this.isIndexing = false;
     }
   }
 
   /**
-   * Level 1: Filter Directories
+   * Powerful Semantic Retrieval (DB-backed)
    */
+  async retrieve(query: string, options: SearchOptions = {}): Promise<ScoredChunk[]> {
+    // Try persistent DB retrieval first
+    const persistentResults = await retrievePersistent(query, this.pool, options.limit || 5);
+    
+    if (persistentResults.length > 0) {
+      return persistentResults.map(r => ({
+        id: r.source,
+        path: r.source,
+        content: r.content,
+        header: "",
+        index: 0,
+        score: r.score,
+        keywordScore: 0,
+        vectorScore: r.score
+      }));
+    }
+
+    // Fallback to in-memory hierarchical retrieval if DB is empty/fails
+    let candidateChunks: Chunk[] = [];
+    const selectedDirs = this.filterDirectories(query);
+    const targetDirs = selectedDirs.length > 0 ? selectedDirs : this.directories; 
+    const selectedDocs = this.filterDocuments(query, targetDirs);
+    const targetDocs = selectedDocs.length > 0 ? selectedDocs : Array.from(this.documentMap.values()).flat();
+
+    for (const doc of targetDocs) {
+      candidateChunks.push(...(this.chunkMap.get(doc.path) || []));
+    }
+
+    const queryEmbedding = await generateEmbedding(query);
+    let vectorScores: { chunkId: string; similarity: number }[] | null = null;
+    
+    if (queryEmbedding) {
+      const vectorResults = this.vectorStore.search(queryEmbedding, 50);
+      vectorScores = vectorResults.map(r => ({
+        chunkId: r.chunk.id,
+        similarity: r.similarity
+      }));
+    }
+
+    return hybridSearch(query, candidateChunks, vectorScores, options);
+  }
+
   private filterDirectories(query: string, limit: number = 2): DirectoryNode[] {
     const queryLower = query.toLowerCase();
     return this.directories.map(dir => {
@@ -60,9 +114,6 @@ export class KnowledgeEngine {
     .slice(0, limit);
   }
 
-  /**
-   * Level 2: Filter Documents in selected directories
-   */
   private filterDocuments(query: string, selectedDirs: DirectoryNode[], limit: number = 5): DocumentNode[] {
     const queryLower = query.toLowerCase();
     const allRelevantDocs: { doc: DocumentNode, score: number }[] = [];
@@ -84,45 +135,16 @@ export class KnowledgeEngine {
       .slice(0, limit);
   }
 
-  /**
-   * Hierarchical Retrieval
-   */
-  async retrieve(query: string, options: SearchOptions = {}): Promise<ScoredChunk[]> {
-    // Stage 1 & 2: Filter down to candidate chunks
-    let candidateChunks: Chunk[] = [];
-    
-    // Attempt Level 1 Filtering
-    const selectedDirs = this.filterDirectories(query);
-    const targetDirs = selectedDirs.length > 0 ? selectedDirs : this.directories; // Fallback to all if no clear match
-
-    // Attempt Level 2 Filtering
-    const selectedDocs = this.filterDocuments(query, targetDirs);
-    const targetDocs = selectedDocs.length > 0 ? selectedDocs : Array.from(this.documentMap.values()).flat();
-
-    // Collect chunks from filtered docs
-    for (const doc of targetDocs) {
-      candidateChunks.push(...(this.chunkMap.get(doc.path) || []));
-    }
-
-    // Stage 3: Perform Hybrid Search on candidates
-    const queryEmbedding = await generateEmbedding(query);
-    let vectorScores: { chunkId: string; similarity: number }[] | null = null;
-    
-    if (queryEmbedding) {
-      const vectorResults = this.vectorStore.search(queryEmbedding, 50);
-      vectorScores = vectorResults.map(r => ({
-        chunkId: r.chunk.id,
-        similarity: r.similarity
-      }));
-    }
-
-    return hybridSearch(query, candidateChunks, vectorScores, options);
-  }
-
   async getAugmentedPrompt(query: string, options: SearchOptions = {}): Promise<string> {
     const relevantChunks = await this.retrieve(query, options);
     const context = buildContext(relevantChunks);
     return wrapPrompt(query, context);
+  }
+
+  listAll(): string[] {
+    return Array.from(this.documentMap.values())
+      .flat()
+      .map(doc => doc.path.replace(this.root, "").replace(/^\//, ""));
   }
 
   getStats() {

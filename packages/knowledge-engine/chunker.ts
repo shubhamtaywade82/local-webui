@@ -1,39 +1,32 @@
 export interface Chunk {
   id: string;
-  file: string;
+  path: string;
+  index: number;
   content: string;
-  header?: string;
+  header: string;
 }
 
-export function chunkMarkdown(file: string, content: string): Chunk[] {
-  // Split by headers (Level 1 and Level 2 are primary split points)
-  const sections = content.split(/\n(?=#{1,2}\s)/);
+export function chunkMarkdown(path: string, text: string): Chunk[] {
+  // Split using header-aware partitioning
+  // We look for second-level headers specifically
+  const sections = text.split(/\n## /);
   const chunks: Chunk[] = [];
 
-  sections.forEach((section, i) => {
-    const trimmed = section.trim();
-    if (trimmed.length < 50) return; // Skip very small chunks
+  sections.forEach((s, i) => {
+    const cleaned = s.trim();
+    if (cleaned.length < 50) return; // Skip very small fragments
 
-    // Extract header if possible
-    const headerMatch = trimmed.match(/^#{1,6}\s+(.*)/);
-    const header = headerMatch ? headerMatch[1] : undefined;
+    const lines = cleaned.split("\n");
+    const header = i === 0 ? "Introduction" : lines[0];
 
     chunks.push({
-      id: `${file}-${i}`,
-      file,
-      content: trimmed,
+      id: `${path}#${i}`,
+      path,
+      index: i,
+      content: i === 0 ? cleaned : `## ${cleaned}`, // Restore header for subsequent chunks
       header
     });
   });
-
-  // If no headers found or content too small to split, return as one chunk
-  if (chunks.length === 0 && content.trim().length > 0) {
-    chunks.push({
-      id: `${file}-0`,
-      file,
-      content: content.trim()
-    });
-  }
 
   return chunks;
 }

@@ -2,5 +2,10 @@
   "name": "@workspace/knowledge-engine",
   "version": "1.0.0",
   "main": "index.ts",
-  "types": "index.ts"
+  "types": "index.ts",
+  "dependencies": {
+    "@types/pg": "^8.18.0",
+    "gray-matter": "^4.0.3",
+    "pg": "^8.20.0"
+  }
 }
