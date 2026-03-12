@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  ::-webkit-scrollbar {
+    @apply w-1.5 h-1.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full hover:bg-gray-400 transition-colors;
+  }
+}
+
+/* Custom Typography Overrides */
+.prose pre {
+  @apply border-none !important;
+}
+
+.prose code::before,
+.prose code::after {
+  content: "" !important;
+}
+
+.prose table {
+  @apply m-0 !important;
+}
+
 html, body, #root {
   height: 100%;
 }

@@ -1,8 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Send, Bot, User, LayoutDashboard, Settings } from 'lucide-react';
+import { Send, Bot, User, LayoutDashboard, Settings, Menu, X } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import remarkGfm from 'remark-gfm';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -26,6 +29,7 @@ export default function App() {
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,27 +71,48 @@ export default function App() {
       setMessages(m => [...m, { role: 'assistant', content: '' }]);
       
       const decoder = new TextDecoder();
+      let buffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(Boolean);
-        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.token) {
-                setMessages(m => {
-                  const copy = [...m];
-                  copy[copy.length - 1].content += data.token;
-                  return copy;
-                });
-              }
-            } catch (err) {
-              // Ignore malformed JSON chunks
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.token) {
+              setMessages(m => {
+                const next = [...m];
+                const lastIdx = next.length - 1;
+                if (lastIdx >= 0) {
+                  next[lastIdx] = { ...next[lastIdx], content: next[lastIdx].content + data.token };
+                }
+                return next;
+              });
             }
+          } catch (err) {
+            // Ignore malformed JSON chunks
+          }
+        }
+      }
+      if (buffer.trim()) {
+        if (buffer.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(buffer.slice(6));
+            if (data.token) {
+              setMessages(m => {
+                const next = [...m];
+                const lastIdx = next.length - 1;
+                if (lastIdx >= 0) {
+                  next[lastIdx] = { ...next[lastIdx], content: next[lastIdx].content + data.token };
+                }
+                return next;
+              });
+            }
+          } catch (err) {
+            // ignore
           }
         }
       }
@@ -104,11 +129,27 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden text-gray-900">
+      {/* Mobile Sidebar Overlay */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col hidden md:flex">
-        <div className="p-4 border-b border-gray-200 font-bold text-lg flex items-center gap-2">
-          <LayoutDashboard className="w-5 h-5 text-indigo-600" />
-          AI Workspace
+      <div className={cn(
+        "fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-200 flex flex-col z-50 transition-transform duration-300 md:relative md:translate-x-0",
+        isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <div className="p-4 border-b border-gray-200 font-bold text-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <LayoutDashboard className="w-5 h-5 text-indigo-600" />
+            AI Workspace
+          </div>
+          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-1 hover:bg-gray-100 rounded">
+            <X className="w-5 h-5" />
+          </button>
         </div>
         
         <div className="p-4 border-b border-gray-100">
@@ -140,8 +181,19 @@ export default function App() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 bg-white border-b border-gray-200 flex items-center px-4 md:hidden font-bold text-lg shadow-sm z-10">
-          AI Workspace
+        <header className="h-14 bg-white border-b border-gray-200 flex items-center px-4 md:px-8 font-bold text-lg shadow-sm z-10 justify-between">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setIsSidebarOpen(true)}
+              className="p-1 px-2 md:hidden hover:bg-gray-100 rounded-md border border-gray-200"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+            <span>AI Workspace</span>
+          </div>
+          <div className="text-sm font-normal text-gray-500 hidden sm:block">
+            {model}
+          </div>
         </header>
 
         {/* Chat Messages */}
@@ -159,15 +211,64 @@ export default function App() {
                 )}
                 
                 <div className={cn(
-                  "px-5 py-4 rounded-2xl max-w-[85%]",
+                  "px-5 py-4 rounded-2xl max-w-[85%] overflow-hidden",
                   m.role === 'user' 
                     ? "bg-indigo-600 text-white rounded-tr-none" 
-                    : "bg-white border border-gray-200 shadow-sm rounded-tl-none prose prose-slate prose-sm md:prose-base"
+                    : "bg-white border border-gray-200 shadow-sm rounded-tl-none"
                 )}>
                   {m.role === 'user' ? (
                     <div className="whitespace-pre-wrap">{m.content}</div>
                   ) : (
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                    <div className="prose prose-slate prose-sm md:prose-base max-w-none prose-pre:bg-transparent prose-pre:p-0">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code({ node, inline, className, children, ...props }: any) {
+                            const match = /language-(\w+)/.exec(className || '');
+                            return !inline && match ? (
+                              <div className="rounded-md overflow-hidden my-4 border border-gray-700">
+                                <div className="bg-gray-800 px-4 py-1.5 text-xs text-gray-400 flex justify-between items-center border-b border-gray-700">
+                                  <span>{match[1]}</span>
+                                </div>
+                                <SyntaxHighlighter
+                                  style={vscDarkPlus}
+                                  language={match[1]}
+                                  PreTag="div"
+                                  customStyle={{ margin: 0, borderRadius: 0, padding: '1rem' }}
+                                  {...props}
+                                >
+                                  {String(children).replace(/\n$/, '')}
+                                </SyntaxHighlighter>
+                              </div>
+                            ) : (
+                              <code className={cn("bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono text-indigo-600", className)} {...props}>
+                                {children}
+                              </code>
+                            );
+                          },
+                          table({ children }) {
+                            return (
+                              <div className="overflow-x-auto my-6 border border-gray-200 rounded-lg shadow-sm">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                  {children}
+                                </table>
+                              </div>
+                            );
+                          },
+                          thead({ children }) {
+                            return <thead className="bg-gray-50">{children}</thead>;
+                          },
+                          th({ children }) {
+                            return <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{children}</th>;
+                          },
+                          td({ children }) {
+                            return <td className="px-4 py-2 text-sm text-gray-700 border-t border-gray-100">{children}</td>;
+                          }
+                        }}
+                      >
+                        {m.content}
+                      </ReactMarkdown>
+                    </div>
                   )}
                 </div>
 
