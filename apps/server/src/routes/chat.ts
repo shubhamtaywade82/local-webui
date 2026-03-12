@@ -65,7 +65,3 @@ ${contextString || "No relevant local knowledge found."}`
     res.raw.end();
   });
 }
-
-    res.raw.end();
-  });
-}
