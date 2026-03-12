@@ -12,10 +12,13 @@
     "@workspace/knowledge-engine": "workspace:*",
     "@workspace/ollama-client": "workspace:*",
     "fastify": "^4.26.2",
-    "pg": "^8.20.0"
+    "pg": "^8.11.5",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.3"
   },
   "devDependencies": {
     "@types/node": "^25.4.0",
+    "@types/validator": "^13.11.9",
     "tsx": "^4.7.2",
     "typescript": "^5.4.5"
   }

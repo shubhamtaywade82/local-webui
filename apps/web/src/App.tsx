@@ -27,6 +27,20 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', content: 'Hello! I am your local AI workspace with RAG support. How can I help you today?' }
   ]);
+  
+  const SUGGESTIONS = [
+    { label: "Check Knowledge", prompt: "What documents are available in my local knowledge base?", icon: "📚" },
+    { label: "Analyze Code", prompt: "Can you explain how the Sequelize models are defined in this project?", icon: "💻" },
+    { label: "Compare Models", prompt: "What are the strengths of llama3.2 versus qwen2.5 for local tasks?", icon: "⚖️" },
+    { label: "Data Tasks", prompt: "Show me a sample SQL table for tracking user preferences.", icon: "📊" }
+  ];
+
+  const applySuggestion = (p: string) => {
+    setInput(p);
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  };
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -304,7 +318,22 @@ export default function App() {
 
         {/* Input Area */}
         <div className="p-4 bg-white border-t border-gray-200">
-          <div className="max-w-3xl mx-auto relative">
+          <div className="max-w-3xl mx-auto">
+            {messages.length <= 1 && (
+              <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide no-scrollbar">
+                {SUGGESTIONS.map((s, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => applySuggestion(s.prompt)}
+                    className="flex-shrink-0 px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700 hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 transition-all duration-200 flex items-center gap-2 whitespace-nowrap shadow-sm"
+                  >
+                    <span>{s.icon}</span>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative">
             <textarea
               ref={textareaRef}
               value={input}
@@ -333,5 +362,6 @@ export default function App() {
         </div>
       </div>
     </div>
+  </div>
   );
 }

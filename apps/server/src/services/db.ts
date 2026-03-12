@@ -1,37 +1,68 @@
-import { Pool } from 'pg';
+import { Sequelize, DataTypes, Model } from 'sequelize';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ai_workspace'
+const sequelize = new Sequelize(process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ai_workspace', {
+  logging: false,
 });
 
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+class Conversation extends Model {
+  declare id: string;
+  declare title: string;
+  declare model: string;
+}
+
+Conversation.init({
+  id: { type: DataTypes.UUID, primaryKey: true },
+  title: DataTypes.TEXT,
+  model: DataTypes.TEXT,
+}, { 
+  sequelize, 
+  modelName: 'conversation',
+  underscored: true,
+  updatedAt: false, // Schema doesn't have updated_at for conversations
 });
+
+class Message extends Model {
+  declare id: string;
+  declare conversationId: string;
+  declare role: string;
+  declare content: string;
+}
+
+Message.init({
+  id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  role: DataTypes.TEXT,
+  content: DataTypes.TEXT,
+}, { 
+  sequelize, 
+  modelName: 'message',
+  underscored: true,
+  updatedAt: false, // Schema doesn't have updated_at for messages
+});
+
+Conversation.hasMany(Message, { foreignKey: 'conversationId' });
+Message.belongsTo(Conversation, { foreignKey: 'conversationId' });
+
+// Sync database
+sequelize.sync()
+  .then(() => console.log('Database synced with Sequelize'))
+  .catch(err => console.error('Database sync failed:', err));
 
 export const db = {
-  query: (text: string, params?: any[]) => pool.query(text, params),
-  
   async saveMessage(conversationId: string, role: string, content: string) {
-    return this.query(
-      'INSERT INTO messages (id, conversation_id, role, content) VALUES (gen_random_uuid(), $1, $2, $3)',
-      [conversationId, role, content]
-    );
+    return Message.create({ conversationId, role, content });
   },
 
   async getMessages(conversationId: string) {
-    const res = await this.query(
-      'SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC',
-      [conversationId]
-    );
-    return res.rows;
+    return Message.findAll({
+      where: { conversationId },
+      order: [['createdAt', 'ASC']],
+      attributes: ['role', 'content']
+    });
   },
 
   async createConversation(title: string, model: string) {
     const id = crypto.randomUUID();
-    await this.query(
-      'INSERT INTO conversations (id, title, model) VALUES ($1, $2, $3)',
-      [id, title, model]
-    );
+    await Conversation.create({ id, title, model });
     return id;
   }
 };

@@ -26,7 +26,7 @@ export default async function routes(app: FastifyInstance) {
     const history = await db.getMessages(currentConversationId);
     let historyContext = "";
     if (history.length > 10) {
-      const historyText = history.map(m => `${m.role}: ${m.content}`).join("\n");
+      const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
       const summary = await summarizeConversation(historyText);
       historyContext = `Conversation Summary:\n${summary}`;
     }
