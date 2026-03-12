@@ -1,0 +1,14 @@
+{
+  "name": "local-webui",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first AI workspace optimized for small models",
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

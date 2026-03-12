@@ -1,0 +1,22 @@
+{
+  "name": "@workspace/server",
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@types/pg": "^8.18.0",
+    "@workspace/knowledge-engine": "workspace:*",
+    "@workspace/ollama-client": "workspace:*",
+    "fastify": "^4.26.2",
+    "pg": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "tsx": "^4.7.2",
+    "typescript": "^5.4.5"
+  }
+}
