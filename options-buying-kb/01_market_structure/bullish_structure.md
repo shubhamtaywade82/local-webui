@@ -1,13 +1,19 @@
 ---
+title: Bullish Structure
+category: market_structure
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - structure
+  - price-action
+  - trend
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Bullish Structure

@@ -1,13 +1,19 @@
 ---
+title: Premium Range Selection
+category: execution
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - strike-selection
+  - delta
+  - gamma
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Premium Range Selection

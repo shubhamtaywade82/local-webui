@@ -1,9 +1,10 @@
 # Psychology Knowledge
 
-This directory contains knowledge about psychology.
+Detailed resources and strategies for psychology.
 
-Documents included:
-- Discipline Models
-- Emotional Control
-- Revenge Trading
-- Trader Psychology
+## Documents
+
+- [Discipline Models](discipline_models.md)
+- [Emotional Control](emotional_control.md)
+- [Revenge Trading](revenge_trading.md)
+- [Trader Psychology](trader_psychology.md)

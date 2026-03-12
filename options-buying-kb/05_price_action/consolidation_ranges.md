@@ -1,13 +1,19 @@
 ---
+title: Consolidation Ranges
+category: market_structure
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - price-action
+  - patterns
+  - breakout
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Consolidation Ranges

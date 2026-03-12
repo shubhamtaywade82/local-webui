@@ -1,14 +1,15 @@
 # Foundations Knowledge
 
-This directory contains knowledge about foundations.
+Detailed resources and strategies for foundations.
 
-Documents included:
-- Delta Gamma Theta Vega
-- Greeks Overview
-- Implied Volatility
-- Intrinsic Vs Extrinsic
-- Option Chain Structure
-- Options Basics
-- Options Pricing Models
-- Time Decay Theta
-- Volatility Crush
+## Documents
+
+- [Delta Gamma Theta Vega](delta_gamma_theta_vega.md)
+- [Greeks Overview](greeks_overview.md)
+- [Implied Volatility](implied_volatility.md)
+- [Intrinsic Vs Extrinsic](intrinsic_vs_extrinsic.md)
+- [Option Chain Structure](option_chain_structure.md)
+- [Options Basics](options_basics.md)
+- [Options Pricing Models](options_pricing_models.md)
+- [Time Decay Theta](time_decay_theta.md)
+- [Volatility Crush](volatility_crush.md)

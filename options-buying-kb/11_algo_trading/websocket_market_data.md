@@ -1,13 +1,19 @@
 ---
+title: Websocket Market Data
+category: algo
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - algo
+  - system-design
+  - api
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Websocket Market Data

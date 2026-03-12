@@ -1,13 +1,19 @@
 ---
+title: Iv Percentile
+category: analysis
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - volatility
+  - vix
+  - iv
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Iv Percentile

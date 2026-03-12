@@ -1,11 +1,12 @@
 # Price Action Knowledge
 
-This directory contains knowledge about price action.
+Detailed resources and strategies for price action.
 
-Documents included:
-- Breakout Patterns
-- Consolidation Ranges
-- False Breakouts
-- Price Action Entry Models
-- Support Resistance
-- Trendlines
+## Documents
+
+- [Breakout Patterns](breakout_patterns.md)
+- [Consolidation Ranges](consolidation_ranges.md)
+- [False Breakouts](false_breakouts.md)
+- [Price Action Entry Models](price_action_entry_models.md)
+- [Support Resistance](support_resistance.md)
+- [Trendlines](trendlines.md)

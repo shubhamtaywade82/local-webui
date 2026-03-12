@@ -1,13 +1,19 @@
 ---
+title: Supertrend Options Indicator
+category: pine
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - pinescript
+  - tradingview
+  - backtesting
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Supertrend Options Indicator

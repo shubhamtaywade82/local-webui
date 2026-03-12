@@ -1,9 +1,10 @@
 # Journaling Knowledge
 
-This directory contains knowledge about journaling.
+Detailed resources and strategies for journaling.
 
-Documents included:
-- Mistake Tracking
-- Performance Analysis
-- Trade Journal Template
-- Trade Review Process
+## Documents
+
+- [Mistake Tracking](mistake_tracking.md)
+- [Performance Analysis](performance_analysis.md)
+- [Trade Journal Template](trade_journal_template.md)
+- [Trade Review Process](trade_review_process.md)

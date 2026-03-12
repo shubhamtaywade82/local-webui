@@ -1,13 +1,19 @@
 ---
+title: Tradingview To Rails
+category: automation
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - automation
+  - rails
+  - webhooks
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Tradingview To Rails

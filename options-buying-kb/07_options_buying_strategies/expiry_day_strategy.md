@@ -1,13 +1,19 @@
 ---
+title: Expiry Day Strategy
+category: strategy
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - options-buying
+  - momentum
+  - scalping
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Expiry Day Strategy

@@ -1,13 +1,19 @@
 ---
+title: Delta Gamma Theta Vega
+category: foundations
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - basics
+  - options-101
+  - greeks
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Delta Gamma Theta Vega

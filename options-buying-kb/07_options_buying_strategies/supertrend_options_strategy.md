@@ -1,15 +1,19 @@
 ---
+title: Supertrend Options Strategy
+category: strategy
 tags:
-  - options
-  - strategy
+  - options-buying
   - momentum
-timeframe:
-  - 5m
-  - 15m
+  - scalping
 markets:
   - nifty
   - banknifty
+timeframes:
+  - 5m
+  - 15m
 difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Supertrend Options Buying Strategy

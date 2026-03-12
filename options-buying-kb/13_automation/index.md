@@ -1,11 +1,12 @@
 # Automation Knowledge
 
-This directory contains knowledge about automation.
+Detailed resources and strategies for automation.
 
-Documents included:
-- Bracket Order Automation
-- Dhan Api Execution
-- Exit Automation
-- Ltp Stream Processing
-- Tradingview To Rails
-- Webhook Architecture
+## Documents
+
+- [Bracket Order Automation](bracket_order_automation.md)
+- [Dhan Api Execution](dhan_api_execution.md)
+- [Exit Automation](exit_automation.md)
+- [Ltp Stream Processing](ltp_stream_processing.md)
+- [Tradingview To Rails](tradingview_to_rails.md)
+- [Webhook Architecture](webhook_architecture.md)

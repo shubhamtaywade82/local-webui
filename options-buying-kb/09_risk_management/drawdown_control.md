@@ -1,13 +1,19 @@
 ---
+title: Drawdown Control
+category: risk
 tags:
-  - options
-timeframe:
-  - 5m
-  - 15m
+  - risk-management
+  - position-sizing
+  - psychology
 markets:
   - nifty
   - banknifty
-difficulty: beginner
+timeframes:
+  - 5m
+  - 15m
+difficulty: intermediate
+strategy_type: directional
+automation_ready: true
 ---
 
 # Drawdown Control
