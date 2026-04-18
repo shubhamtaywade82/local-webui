@@ -397,6 +397,23 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
                 if (savedMessageId) {
                   db.saveAgentExecution(savedMessageId, p.tool, p.args, { result: p.result }, p.duration, 'success').catch(() => {});
                 }
+                
+                // Also broadcast the tool data as a step update so the UI can show exact data used
+                connection.socket.send(JSON.stringify({
+                  type: 'agent_step',
+                  step: {
+                    id: p.id || `tool-${Date.now()}`,
+                    label: `Executed ${p.tool}`,
+                    tool: p.tool,
+                    status: 'success',
+                    input: JSON.stringify(p.args),
+                    output: JSON.stringify(p.result),
+                    duration: p.duration,
+                    timestamp: Date.now()
+                  },
+                  conversation_id: currentConversationId
+                }));
+
                 if (p.tool === 'edit_file') {
                   connection.socket.send(JSON.stringify({
                     type: 'tool_call', tool: 'edit_file',

@@ -52,6 +52,16 @@ function AgentTimeline({
     });
   };
 
+  const formatTechnicalData = (data: string | undefined) => {
+    if (!data) return null;
+    try {
+      const parsed = JSON.parse(data);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return data;
+    }
+  };
+
   const statusConfig = {
     running: { icon: Loader2, color: 'var(--warning)', animate: true },
     success: { icon: CheckCircle2, color: 'var(--success)', animate: false },
@@ -142,22 +152,36 @@ function AgentTimeline({
                 {/* Expanded Details */}
                 {isExpanded && (step.input || step.output) && (
                   <div
-                    className="mt-2 space-y-2 text-[11px] p-2 rounded-md"
-                    style={{
-                      background: 'var(--bg-tertiary)',
-                      border: '1px solid var(--border-subtle)'
-                    }}
+                    className="mt-2 space-y-3"
                   >
                     {step.input && (
-                      <div>
-                        <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>Input: </span>
-                        <span style={{ color: 'var(--text-secondary)' }}>{step.input}</span>
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Input Arguments</div>
+                        <pre 
+                          className="p-2 rounded-md overflow-x-auto font-mono text-[10px] leading-relaxed"
+                          style={{
+                            background: '#00000040',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-secondary)'
+                          }}
+                        >
+                          {formatTechnicalData(step.input)}
+                        </pre>
                       </div>
                     )}
                     {step.output && (
-                      <div>
-                        <span className="font-semibold" style={{ color: 'var(--text-muted)' }}>Output: </span>
-                        <span style={{ color: 'var(--text-secondary)' }}>{step.output}</span>
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Result Output</div>
+                        <pre 
+                          className="p-2 rounded-md overflow-x-auto font-mono text-[10px] leading-relaxed max-h-[300px]"
+                          style={{
+                            background: '#00000040',
+                            border: '1px solid var(--border-subtle)',
+                            color: 'var(--text-secondary)'
+                          }}
+                        >
+                          {formatTechnicalData(step.output)}
+                        </pre>
                       </div>
                     )}
                   </div>
