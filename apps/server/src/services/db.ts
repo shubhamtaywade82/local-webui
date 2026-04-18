@@ -1,4 +1,4 @@
-import { Sequelize, DataTypes, Model, Op } from 'sequelize';
+import { Sequelize, DataTypes, Model } from 'sequelize';
 
 const sequelize = new Sequelize(process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ai_workspace', {
   logging: false,
@@ -15,11 +15,11 @@ Conversation.init({
   id: { type: DataTypes.UUID, primaryKey: true },
   title: DataTypes.TEXT,
   model: DataTypes.TEXT,
-}, { 
-  sequelize, 
+}, {
+  sequelize,
   modelName: 'conversation',
   underscored: true,
-  updatedAt: false, // Schema doesn't have updated_at for conversations
+  updatedAt: false,
 });
 
 class Message extends Model {
@@ -34,15 +34,68 @@ Message.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   role: DataTypes.TEXT,
   content: DataTypes.TEXT,
-}, { 
-  sequelize, 
+}, {
+  sequelize,
   modelName: 'message',
   underscored: true,
-  updatedAt: false, // Schema doesn't have updated_at for messages
+  updatedAt: false,
 });
 
+class Artifact extends Model {
+  declare id: string;
+  declare conversationId: string;
+  declare fileType: string;
+  declare rawContent: string;
+  declare filePath: string;
+  declare createdAt: Date;
+}
+
+Artifact.init({
+  id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  fileType: DataTypes.TEXT,
+  rawContent: DataTypes.TEXT,
+  filePath: DataTypes.TEXT,
+}, {
+  sequelize,
+  modelName: 'artifact',
+  underscored: true,
+  updatedAt: false,
+});
+
+class AgentExecution extends Model {
+  declare id: string;
+  declare messageId: string;
+  declare toolName: string;
+  declare toolInput: Record<string, unknown>;
+  declare toolOutput: Record<string, unknown>;
+  declare durationMs: number;
+  declare status: 'success' | 'error' | 'timeout';
+  declare createdAt: Date;
+}
+
+AgentExecution.init({
+  id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  toolName: DataTypes.TEXT,
+  toolInput: DataTypes.JSONB,
+  toolOutput: DataTypes.JSONB,
+  durationMs: DataTypes.INTEGER,
+  status: DataTypes.TEXT,
+}, {
+  sequelize,
+  modelName: 'agent_execution',
+  underscored: true,
+  updatedAt: false,
+});
+
+// Associations
 Conversation.hasMany(Message, { foreignKey: 'conversationId' });
 Message.belongsTo(Conversation, { foreignKey: 'conversationId' });
+
+Conversation.hasMany(Artifact, { foreignKey: 'conversationId' });
+Artifact.belongsTo(Conversation, { foreignKey: 'conversationId' });
+
+Message.hasMany(AgentExecution, { foreignKey: 'messageId' });
+AgentExecution.belongsTo(Message, { foreignKey: 'messageId' });
 
 // Sync database
 sequelize.sync()
@@ -68,7 +121,6 @@ export const db = {
     return id;
   },
 
-  /** Ensures a row exists for client-supplied conversation IDs (Web UI generates UUIDs locally). */
   async ensureConversation(id: string, title: string, model: string) {
     await Conversation.findOrCreate({
       where: { id },
@@ -91,5 +143,24 @@ export const db = {
 
   async renameConversation(id: string, title: string) {
     await Conversation.update({ title }, { where: { id } });
-  }
+  },
+
+  async saveAgentExecution(
+    messageId: string,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+    toolOutput: Record<string, unknown>,
+    durationMs: number,
+    status: 'success' | 'error' | 'timeout'
+  ) {
+    return AgentExecution.create({ messageId, toolName, toolInput, toolOutput, durationMs, status });
+  },
+
+  async saveArtifact(conversationId: string, fileType: string, rawContent: string, filePath: string) {
+    return Artifact.create({ conversationId, fileType, rawContent, filePath });
+  },
+
+  async getAgentExecutions(messageId: string) {
+    return AgentExecution.findAll({ where: { messageId }, order: [['createdAt', 'ASC']] });
+  },
 };
