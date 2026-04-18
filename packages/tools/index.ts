@@ -1,6 +1,7 @@
 import { BaseTool, ToolSchema } from './types';
 
-export { BaseTool, ToolSchema } from './types';
+export { BaseTool } from './types';
+export type { ToolSchema } from './types';
 export * from './file-tools';
 export * from './db-tools';
 export * from './kb-tools';

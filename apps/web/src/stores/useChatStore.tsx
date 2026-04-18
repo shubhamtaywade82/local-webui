@@ -264,6 +264,7 @@ interface ChatContextValue {
   createNewConversation: () => void;
   checkOllamaStatus: () => Promise<void>;
   fetchModels: () => Promise<void>;
+  loadConversations: () => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -318,6 +319,33 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     } catch {
       dispatch({ type: 'SET_OLLAMA_STATUS', status: 'disconnected' });
     }
+  }, []);
+
+  const getAuthHeaders = (): Record<string, string> => {
+    try {
+      const token = JSON.parse(localStorage.getItem('ai-workspace-auth') || '{}').token;
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    } catch { return {}; }
+  };
+
+  const loadConversations = useCallback(async () => {
+    try {
+      const res = await fetch('/api/conversations', { headers: getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const convs: Conversation[] = data.map((c: any) => ({
+            id: c.id,
+            title: c.title,
+            model: c.model,
+            createdAt: new Date(c.createdAt).getTime(),
+            messages: [],
+            agentSteps: []
+          }));
+          dispatch({ type: 'SET_CONVERSATIONS', conversations: convs });
+        }
+      }
+    } catch {}
   }, []);
 
   const fetchModels = useCallback(async () => {
@@ -385,6 +413,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     abortRef.current = controller;
 
     try {
+      const token = (() => { try { return JSON.parse(localStorage.getItem('ai-workspace-auth') || '{}').token; } catch { return null; } })();
       const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/chat/`;
       const ws = new WebSocket(wsUrl);
 
@@ -400,6 +429,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
           agentMode: state.agentMode,
           agentStepMode: state.agentStepMode,
           maxIterations: state.maxIterations,
+          token: token || undefined,
         }));
       };
 
@@ -509,7 +539,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     sendMessage,
     createNewConversation,
     checkOllamaStatus,
-    fetchModels
+    fetchModels,
+    loadConversations
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

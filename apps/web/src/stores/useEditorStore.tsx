@@ -7,6 +7,14 @@ export interface EditorFile {
   content: string;
   language: string;
   isDirty: boolean;
+  isSaving?: boolean;
+}
+
+export interface FileNode {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children?: FileNode[];
 }
 
 interface EditorState {
@@ -37,12 +45,17 @@ function getPersistedEditorState(): EditorState | null {
 
 interface EditorContextValue {
   files: EditorFile[];
+  tree: FileNode[];
+  loadingTree: boolean;
   activeFile: EditorFile | null;
   activeFileId: string | null;
   openFile: (path: string, content: string) => void;
   closeFile: (fileId: string) => void;
   setActiveFile: (fileId: string) => void;
   updateContent: (fileId: string, content: string) => void;
+  saveFile: (fileId: string) => Promise<void>;
+  refreshTree: () => Promise<void>;
+  openFromDisk: (path: string) => Promise<void>;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
@@ -53,7 +66,7 @@ export function useEditorStore() {
   return ctx;
 }
 
-export function EditorStoreProvider({ children }: { children: React.ReactNode }) {
+export function EditorStoreProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const [state, setState] = useState<EditorState>(() => {
     return getPersistedEditorState() || {
       files: [],
@@ -61,9 +74,32 @@ export function EditorStoreProvider({ children }: { children: React.ReactNode })
     };
   });
 
+  const [tree, setTree] = useState<FileNode[]>([]);
+  const [loadingTree, setLoadingTree] = useState(false);
+
   useEffect(() => {
     localStorage.setItem('ai-workspace-editor', JSON.stringify(state));
   }, [state]);
+
+  const refreshTree = useCallback(async () => {
+    setLoadingTree(true);
+    try {
+      const res = await fetch('/api/files/list');
+      if (res.ok) {
+        const data = await res.json();
+        setTree(data.tree || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch file tree:', err);
+    } finally {
+      setLoadingTree(false);
+    }
+  }, []);
+
+  // Initial tree load
+  useEffect(() => {
+    refreshTree();
+  }, [refreshTree]);
 
   const openFile = useCallback((path: string, content: string) => {
     setState(prev => {
@@ -78,7 +114,7 @@ export function EditorStoreProvider({ children }: { children: React.ReactNode })
         path,
         content,
         language: detectLanguage(name),
-        isDirty: false
+        isDirty: true
       };
       return {
         files: [...prev.files, file],
@@ -86,6 +122,37 @@ export function EditorStoreProvider({ children }: { children: React.ReactNode })
       };
     });
   }, []);
+
+  const openFromDisk = useCallback(async (path: string) => {
+    // Check if already open
+    const existing = state.files.find(f => f.path === path);
+    if (existing) {
+      setState(prev => ({ ...prev, activeFileId: existing.id }));
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+      if (res.ok) {
+        const { content } = await res.json();
+        const name = path.split('/').pop() ?? path;
+        const file: EditorFile = {
+          id: crypto.randomUUID(),
+          name,
+          path,
+          content,
+          language: detectLanguage(name),
+          isDirty: false
+        };
+        setState(prev => ({
+          files: [...prev.files, file],
+          activeFileId: file.id
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to read file from disk:', err);
+    }
+  }, [state.files]);
 
   const closeFile = useCallback((fileId: string) => {
     setState(prev => {
@@ -113,17 +180,58 @@ export function EditorStoreProvider({ children }: { children: React.ReactNode })
     }));
   }, []);
 
+  const saveFile = useCallback(async (fileId: string) => {
+    const file = state.files.find(f => f.id === fileId);
+    if (!file) return;
+
+    setState(prev => ({
+      ...prev,
+      files: prev.files.map(f => f.id === fileId ? { ...f, isSaving: true } : f)
+    }));
+
+    try {
+      const res = await fetch('/api/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: file.path, content: file.content })
+      });
+
+      if (!res.ok) throw new Error('Failed to save file');
+
+      setState(prev => ({
+        ...prev,
+        files: prev.files.map(f => 
+          f.id === fileId ? { ...f, isDirty: false, isSaving: false } : f
+        )
+      }));
+      
+      // Refresh tree in case it's a new file
+      refreshTree();
+    } catch (err) {
+      console.error(err);
+      setState(prev => ({
+        ...prev,
+        files: prev.files.map(f => f.id === fileId ? { ...f, isSaving: false } : f)
+      }));
+    }
+  }, [state.files, refreshTree]);
+
   const activeFile = state.files.find(f => f.id === state.activeFileId) ?? null;
 
   return (
     <EditorContext.Provider value={{
       files: state.files,
+      tree,
+      loadingTree,
       activeFile,
       activeFileId: state.activeFileId,
       openFile,
       closeFile,
       setActiveFile,
-      updateContent
+      updateContent,
+      saveFile,
+      refreshTree,
+      openFromDisk
     }}>
       {children}
     </EditorContext.Provider>

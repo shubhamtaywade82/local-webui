@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, Search, Settings, Brain, ChevronDown,
-  Trash2, MessageSquare, Zap, Wifi, WifiOff, Loader2
+  Trash2, MessageSquare, Zap, Wifi, WifiOff, Loader2, LogOut
 } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import SettingsModal from './SettingsModal';
 
 export default function Sidebar() {
@@ -12,8 +13,10 @@ export default function Sidebar() {
     dispatch,
     createNewConversation,
     checkOllamaStatus,
-    fetchModels
+    fetchModels,
+    loadConversations
   } = useChatStore();
+  const { auth, logout } = useAuthStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -21,6 +24,7 @@ export default function Sidebar() {
   useEffect(() => {
     fetchModels();
     checkOllamaStatus();
+    loadConversations();
   }, []);
 
   const filteredConversations = state.conversations.filter(c =>
@@ -222,6 +226,19 @@ export default function Sidebar() {
           <Settings size={13} />
           Settings
         </button>
+
+        {/* User / Logout */}
+        {auth.email && (
+          <button
+            onClick={logout}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-white/5"
+            style={{ color: 'var(--text-tertiary)' }}
+            title={`Signed in as ${auth.email}`}
+          >
+            <LogOut size={13} />
+            <span className="truncate">{auth.email}</span>
+          </button>
+        )}
       </div>
 
       {showSettings && (

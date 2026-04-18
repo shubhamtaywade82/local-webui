@@ -4,10 +4,29 @@ const sequelize = new Sequelize(process.env.DATABASE_URL || 'postgresql://postgr
   logging: false,
 });
 
+class User extends Model {
+  declare id: string;
+  declare email: string;
+  declare passwordHash: string;
+  declare createdAt: Date;
+}
+
+User.init({
+  id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  email: { type: DataTypes.TEXT, allowNull: false, unique: true },
+  passwordHash: DataTypes.TEXT,
+}, {
+  sequelize,
+  modelName: 'user',
+  underscored: true,
+  updatedAt: false,
+});
+
 class Conversation extends Model {
   declare id: string;
   declare title: string;
   declare model: string;
+  declare userId: string | null;
   declare createdAt: Date;
 }
 
@@ -15,6 +34,7 @@ Conversation.init({
   id: { type: DataTypes.UUID, primaryKey: true },
   title: DataTypes.TEXT,
   model: DataTypes.TEXT,
+  userId: { type: DataTypes.UUID, allowNull: true },
 }, {
   sequelize,
   modelName: 'conversation',
@@ -88,6 +108,9 @@ AgentExecution.init({
 });
 
 // Associations
+User.hasMany(Conversation, { foreignKey: 'userId' });
+Conversation.belongsTo(User, { foreignKey: 'userId' });
+
 Conversation.hasMany(Message, { foreignKey: 'conversationId' });
 Message.belongsTo(Conversation, { foreignKey: 'conversationId' });
 
@@ -103,6 +126,18 @@ sequelize.sync()
   .catch(err => console.error('Database sync failed:', err));
 
 export const db = {
+  async createUser(email: string, passwordHash: string) {
+    return User.create({ email, passwordHash });
+  },
+
+  async findUserByEmail(email: string) {
+    return User.findOne({ where: { email } });
+  },
+
+  async findUserById(id: string) {
+    return User.findByPk(id);
+  },
+
   async saveMessage(conversationId: string, role: string, content: string) {
     return Message.create({ conversationId, role, content });
   },
@@ -115,21 +150,23 @@ export const db = {
     });
   },
 
-  async createConversation(title: string, model: string) {
+  async createConversation(title: string, model: string, userId?: string) {
     const id = crypto.randomUUID();
-    await Conversation.create({ id, title, model });
+    await Conversation.create({ id, title, model, userId: userId ?? null });
     return id;
   },
 
-  async ensureConversation(id: string, title: string, model: string) {
+  async ensureConversation(id: string, title: string, model: string, userId?: string) {
     await Conversation.findOrCreate({
       where: { id },
-      defaults: { title, model },
+      defaults: { title, model, userId: userId ?? null },
     });
   },
 
-  async listConversations() {
+  async listConversations(userId?: string) {
+    const where: Record<string, unknown> = userId ? { userId } : {};
     return Conversation.findAll({
+      where,
       order: [['createdAt', 'DESC']],
       attributes: ['id', 'title', 'model', 'createdAt'],
       limit: 50

@@ -6,6 +6,8 @@ import chatRoutes from "./routes/chat";
 import conversationsRoutes from "./routes/conversations";
 import modelsRoutes from "./routes/models";
 import kbRoutes from "./routes/kb";
+import filesRoutes from "./routes/files";
+import authRoutes from "./routes/auth";
 
 const app = Fastify({ 
   logger: true,
@@ -17,10 +19,12 @@ async function start() {
   await app.register(websocket);
   await app.register(multipart);
   
+  await app.register(authRoutes, { prefix: "/auth" });
   await app.register(chatRoutes, { prefix: "/chat" });
   await app.register(conversationsRoutes, { prefix: "/conversations" });
   await app.register(modelsRoutes, { prefix: "/models" });
   await app.register(kbRoutes, { prefix: "/kb" });
+  await app.register(filesRoutes, { prefix: "/files" });
 
   // Global health check
   app.get("/health", async () => ({

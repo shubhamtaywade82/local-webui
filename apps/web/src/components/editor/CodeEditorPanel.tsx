@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
-  FileCode2, X, Plus, Terminal, Settings2,
-  ChevronRight, Folder, File, Code2
+  FileCode2, X, Plus, ChevronRight, Folder, File, Code2, 
+  Save, Loader2, RefreshCcw, Search
 } from 'lucide-react';
-import { useEditorStore } from '../../stores/useEditorStore';
+import { useEditorStore, FileNode } from '../../stores/useEditorStore';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
@@ -11,10 +11,6 @@ import { css } from '@codemirror/lang-css';
 import { json } from '@codemirror/lang-json';
 import { markdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
-
-// ── Simple CodeMirror-like editor (pure textarea with line numbers) ──
-// CodeMirror 6 integration requires separate npm install step.
-// This is a fully functional editor that will be enhanced when CM deps are added.
 
 function getLanguageExtension(lang: string) {
   switch (lang) {
@@ -34,66 +30,79 @@ function getLanguageExtension(lang: string) {
   }
 }
 
-// ── Sample files for demo ──
-const SAMPLE_FILES = [
-  {
-    path: 'src/main.ts',
-    content: `import { createApp } from './app';
+function FileTreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
+  const { openFromDisk, activeFile } = useEditorStore();
+  const [isOpen, setIsOpen] = useState(false);
+  const isActive = activeFile?.path === node.path;
 
-const app = createApp();
-
-app.listen(4000, () => {
-  console.log('Server running on port 4000');
-});`
-  },
-  {
-    path: 'src/app.ts',
-    content: `import Fastify from 'fastify';
-import cors from '@fastify/cors';
-
-export function createApp() {
-  const app = Fastify({ logger: true });
-  app.register(cors);
-
-  app.get('/health', async () => {
-    return { status: 'ok', timestamp: new Date().toISOString() };
-  });
-
-  return app;
-}`
-  },
-  {
-    path: 'README.md',
-    content: `# AI Workspace
-
-Local-first AI chat, coding, and research platform.
-
-## Getting Started
-
-\`\`\`bash
-pnpm install
-pnpm dev
-\`\`\`
-
-## Architecture
-
-- **Frontend**: React + Vite
-- **Backend**: Fastify + Ollama
-- **Database**: PostgreSQL + pgvector
-`
+  if (node.isDir) {
+    return (
+      <div className="flex flex-col">
+        <div
+          className="flex items-center gap-1.5 px-3 py-1 cursor-pointer hover:bg-white/[0.03] transition-colors group"
+          style={{ paddingLeft: `${depth * 12 + 12}px` }}
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          <ChevronRight
+            size={12}
+            className={`transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+            style={{ color: 'var(--text-muted)' }}
+          />
+          <Folder size={12} style={{ color: '#fbbf24' }} />
+          <span className="text-[11px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+            {node.name}
+          </span>
+        </div>
+        {isOpen && node.children?.map(child => (
+          <FileTreeItem key={child.path} node={child} depth={depth + 1} />
+        ))}
+      </div>
+    );
   }
-];
+
+  return (
+    <button
+      onClick={() => openFromDisk(node.path)}
+      className="w-full flex items-center gap-1.5 px-3 py-1 text-left hover:bg-white/[0.03] transition-colors group"
+      style={{
+        paddingLeft: `${depth * 12 + 28}px`,
+        background: isActive ? 'var(--accent-muted)' : 'transparent'
+      }}
+    >
+      <File size={12} style={{ color: isActive ? 'var(--accent)' : 'var(--text-muted)' }} />
+      <span
+        className="text-[11px] truncate flex-1"
+        style={{
+          color: isActive ? 'var(--accent)' : 'var(--text-tertiary)',
+          fontWeight: isActive ? 600 : 400
+        }}
+      >
+        {node.name}
+      </span>
+    </button>
+  );
+}
 
 export default function CodeEditorPanel() {
-  const { files, activeFile, openFile, closeFile, setActiveFile, updateContent } = useEditorStore();
+  const { 
+    files, activeFile, openFile, closeFile, setActiveFile, updateContent,
+    tree, loadingTree, saveFile, refreshTree, openFromDisk
+  } = useEditorStore();
   const [showExplorer, setShowExplorer] = useState(true);
 
-  // Open sample files on first mount if no files are open
+  // Keyboard Shortcuts: Ctrl+S / Cmd+S
   useEffect(() => {
-    if (files.length === 0) {
-      openFile(SAMPLE_FILES[0].path, SAMPLE_FILES[0].content);
-    }
-  }, []);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (activeFile) {
+          saveFile(activeFile.id);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeFile, saveFile]);
 
   // Listen for AI tool calls
   useEffect(() => {
@@ -102,9 +111,6 @@ export default function CodeEditorPanel() {
       console.log(`[CodeEditorPanel] AI Tool Call: Editing ${path}`);
       openFile(path, content);
       
-      // If the file was already open, openFile shifts focus. 
-      // We might want to ensure the content is updated if the AI sends a diff or new version.
-      // Since our openFile handles "existing" by just switching focus, we should manually update content if it exists.
       const existing = files.find(f => f.path === path);
       if (existing) {
         updateContent(existing.id, content);
@@ -150,6 +156,7 @@ export default function CodeEditorPanel() {
                 <span
                   className="w-1.5 h-1.5 rounded-full"
                   style={{ background: 'var(--accent)' }}
+                  title="Unsaved changes"
                 />
               )}
               <button
@@ -165,10 +172,10 @@ export default function CodeEditorPanel() {
         {/* New Tab Button */}
         <button
           className="p-2 hover:bg-white/5 transition-colors"
-          title="Open file"
+          title="New untitled file"
           onClick={() => {
-            const sample = SAMPLE_FILES.find(s => !files.some(f => f.path === s.path));
-            if (sample) openFile(sample.path, sample.content);
+            const id = crypto.randomUUID();
+            openFile(`workspace/untitled-${id.slice(0, 4)}.txt`, '');
           }}
         >
           <Plus size={12} style={{ color: 'var(--text-muted)' }} />
@@ -180,68 +187,90 @@ export default function CodeEditorPanel() {
         {/* File Explorer */}
         {showExplorer && (
           <div
-            className="flex-shrink-0 overflow-y-auto py-2"
+            className="flex-shrink-0 overflow-y-auto"
             style={{
-              width: '180px',
+              width: '200px',
               background: 'var(--bg-tertiary)',
               borderRight: '1px solid var(--border-subtle)'
             }}
           >
-            <div className="px-3 mb-2">
+            <div className="flex items-center justify-between px-3 py-3 border-b border-white/5">
               <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-                Explorer
+                Workspace
               </span>
+              <button 
+                onClick={refreshTree}
+                className={`p-1 rounded hover:bg-white/5 transition-colors ${loadingTree ? 'animate-spin' : ''}`}
+                title="Refresh workspace explorer"
+              >
+                <RefreshCcw size={10} style={{ color: 'var(--text-muted)' }} />
+              </button>
             </div>
 
             {/* Directory Tree */}
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-white/[0.03]">
-                <ChevronRight size={12} style={{ color: 'var(--text-muted)', transform: 'rotate(90deg)' }} />
-                <Folder size={12} style={{ color: '#fbbf24' }} />
-                <span className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>src</span>
-              </div>
-
-              {SAMPLE_FILES.map(sample => (
-                <button
-                  key={sample.path}
-                  onClick={() => openFile(sample.path, sample.content)}
-                  className="w-full flex items-center gap-1 px-2 py-1 pl-6 text-left hover:bg-white/[0.03] transition-colors"
-                  style={{
-                    background: activeFile?.path === sample.path ? 'var(--accent-muted)' : 'transparent'
-                  }}
-                >
-                  <File size={12} style={{ color: 'var(--text-muted)' }} />
-                  <span
-                    className="text-[11px] truncate"
-                    style={{
-                      color: activeFile?.path === sample.path ? 'var(--accent)' : 'var(--text-tertiary)'
-                    }}
-                  >
-                    {sample.path.split('/').pop()}
-                  </span>
-                </button>
+            <div className="py-2">
+              {tree.length === 0 && !loadingTree && (
+                <div className="px-4 py-8 text-center">
+                  <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    Workspace is empty.
+                  </p>
+                </div>
+              )}
+              {tree.map(node => (
+                <FileTreeItem key={node.path} node={node} />
               ))}
             </div>
           </div>
         )}
 
         {/* Editor Area */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           {activeFile ? (
-            <CodeMirror
-              value={activeFile.content}
-              height="100%"
-              theme={oneDark}
-              extensions={getLanguageExtension(activeFile.language)}
-              onChange={(value) => updateContent(activeFile.id, value)}
-              className="h-full [&>.cm-editor]:h-full text-[13px] font-mono"
-            />
+            <>
+              {/* Editor Header / Path Bar */}
+              <div 
+                className="flex items-center justify-between px-4 py-1.5 border-b"
+                style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)' }}
+              >
+                <div className="flex items-center gap-2 text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                  <span>{activeFile.path}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => saveFile(activeFile.id)}
+                    disabled={!activeFile.isDirty || activeFile.isSaving}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold uppercase tracking-wide transition-all active:scale-95 disabled:opacity-30 disabled:grayscale disabled:scale-100"
+                    style={{
+                      background: activeFile.isDirty ? 'var(--accent)' : 'transparent',
+                      color: activeFile.isDirty ? '#fff' : 'var(--text-muted)',
+                      border: activeFile.isDirty ? 'none' : '1px solid var(--border-subtle)'
+                    }}
+                  >
+                    {activeFile.isSaving ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Save size={12} />
+                    )}
+                    {activeFile.isSaving ? 'Saving...' : 'Save to Disk'}
+                  </button>
+                </div>
+              </div>
+
+              <CodeMirror
+                value={activeFile.content}
+                height="100%"
+                theme={oneDark}
+                extensions={getLanguageExtension(activeFile.language)}
+                onChange={(value) => updateContent(activeFile.id, value)}
+                className="flex-1 [&>.cm-editor]:h-full text-[13px] font-mono overflow-hidden"
+              />
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center h-full" style={{ color: 'var(--text-muted)' }}>
-              <Code2 size={40} className="mb-3" />
-              <p className="text-sm">Open a file to start editing</p>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                Click on a file in the explorer
+              <Code2 size={40} className="mb-3 opacity-20" />
+              <p className="text-sm font-medium">Select a file to edit</p>
+              <p className="text-[11px] mt-1 opacity-60">
+                Explore the workspace sidebar or create a new file
               </p>
             </div>
           )}
@@ -260,16 +289,17 @@ export default function CodeEditorPanel() {
         <div className="flex items-center gap-3">
           {activeFile && (
             <>
-              <span className="font-medium" style={{ color: 'var(--accent)' }}>
-                {activeFile.language}
+              <span className="font-bold flex items-center gap-1" style={{ color: 'var(--accent)' }}>
+                <span className="w-1 h-1 rounded-full bg-current" />
+                {activeFile.language.toUpperCase()}
               </span>
-              <span>{activeFile.path}</span>
+              <span className="opacity-60">{activeFile.content.length} characters</span>
             </>
           )}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 opacity-60">
           <span>UTF-8</span>
-          <span>Spaces: 2</span>
+          <span>LN, COL</span>
         </div>
       </div>
     </div>

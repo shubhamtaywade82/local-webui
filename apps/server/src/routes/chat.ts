@@ -1,7 +1,8 @@
 import path from "path";
+import jwt from "jsonwebtoken";
 import { FastifyInstance } from "fastify";
 import { OllamaClient } from "@workspace/ollama-client";
-import { AgentRuntime, AgentConfig, StepApprovalFn } from "@workspace/agent-runtime";
+import { AgentRuntime, AgentConfig, StepApprovalFn, LoopEvent } from "@workspace/agent-runtime";
 import {
   ToolRegistry,
   ReadFileTool, ListFilesTool, EditFileTool, CreateFileTool, DeleteFileTool,
@@ -16,6 +17,7 @@ import { knowledgeEngine } from "../services/knowledgeSingleton";
 
 const ollama = new OllamaClient();
 const knowledge = knowledgeEngine;
+const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-in-prod';
 
 // Workspace root for file tools: repo root (two levels up from apps/server/src/routes)
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || path.resolve(__dirname, '../../../..');
@@ -43,7 +45,18 @@ export default async function routes(app: FastifyInstance) {
   });
 }
 
-function handleWs(connection: any, _req: any) {
+function extractUserIdFromReq(req: any): string | undefined {
+  const auth = req.headers?.authorization as string | undefined;
+  if (!auth?.startsWith('Bearer ')) return undefined;
+  try {
+    const p = jwt.verify(auth.slice(7), JWT_SECRET) as { userId: string };
+    return p.userId;
+  } catch { return undefined; }
+}
+
+function handleWs(connection: any, req: any) {
+  const headerUserId = extractUserIdFromReq(req);
+
   connection.socket.on("message", async (rawMessage: Buffer) => {
     try {
       const payload = JSON.parse(rawMessage.toString());
@@ -53,15 +66,24 @@ function handleWs(connection: any, _req: any) {
 
       const {
         messages, model, conversation_id, systemPrompt: customSystemPrompt,
-        thinking, agentMode, maxIterations, agentStepMode
+        thinking, agentMode, maxIterations, agentStepMode, token: payloadToken
       } = payload;
+
+      // userId from WS upgrade headers OR from first-message token (WS can't send custom headers)
+      let userId = headerUserId;
+      if (!userId && payloadToken) {
+        try {
+          const p = jwt.verify(payloadToken, JWT_SECRET) as { userId: string };
+          userId = p.userId;
+        } catch {}
+      }
 
       if (!messages || !messages.length) return;
       const lastUserMessage = messages[messages.length - 1]?.content || "";
 
       let currentConversationId = conversation_id;
       if (!currentConversationId) {
-        currentConversationId = await db.createConversation(lastUserMessage.slice(0, 30), model);
+        currentConversationId = await db.createConversation(lastUserMessage.slice(0, 30), model, userId);
       }
 
       // 1. Retrieve Knowledge (RAG)
@@ -165,7 +187,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
           await runtime.run(
             lastUserMessage,
             history.map((m: any) => ({ role: m.role, content: m.content })),
-            (event) => {
+            (event: LoopEvent) => {
               if (event.type === 'token') {
                 const token = String((event.payload as any).token ?? '');
                 fullAssistantResponse += token;
