@@ -22,6 +22,7 @@ import {
   RunCodeTool,
   WebSearchTool, FetchUrlTool,
   CoinDCXTool,
+  CoinDCXFuturesTool,
 } from "@workspace/tools";
 import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
@@ -48,6 +49,7 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new WebSearchTool());
   registry.register(new FetchUrlTool());
   registry.register(new CoinDCXTool());
+  registry.register(new CoinDCXFuturesTool());
   return registry;
 }
 

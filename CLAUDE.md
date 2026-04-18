@@ -29,6 +29,8 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 - `OLLAMA_API_KEY` — bearer token for direct access to the cloud Ollama API. Used only in `cloud` mode.
 - `KNOWLEDGE_ROOT` — RAG root relative to `apps/server` cwd (default `../../knowledge`).
 - `KNOWLEDGE_INGEST_PATH` — folder name under repo root for `scripts/ingest.ts` (default `knowledge`).
+- `COINDCX_API_KEY` — CoinDCX API key for authenticated futures trading tools.
+- `COINDCX_API_SECRET` — CoinDCX API secret for HMAC-SHA256 request signing.
 
 ## Touch points when editing
 
