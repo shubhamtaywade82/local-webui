@@ -42,10 +42,19 @@ describe('CoinDCXFuturesTool', () => {
     expect(r2).toContain('leverage required');
   });
 
-  it('errors gracefully when API key missing', async () => {
+  it('returns public-data hint when API key missing', async () => {
     vi.stubEnv('COINDCX_API_KEY', '');
     const result = await tool.execute({ action: 'positions' });
-    expect(result).toContain('COINDCX_API_KEY');
+    expect(result).toContain('coindcx');
+    expect(result).toContain('not configured');
+  });
+
+  it('returns guidance when action is missing', async () => {
+    vi.stubEnv('COINDCX_API_KEY', 'test-key');
+    vi.stubEnv('COINDCX_API_SECRET', 'test-secret');
+    const result = await tool.execute({ error: 'COINDCX_API_KEY and COINDCX_API_SECRET required' } as any);
+    expect(result).toContain('coindcx');
+    expect(result).toContain('missing');
   });
 
   it('create_order posts correct shape and formats response', async () => {

@@ -34,20 +34,36 @@ RULES (STRICT):
 2. DO NOT include any conversational prose before or after the JSON.
 3. Use finish ONLY when the task is concluded.
 4. All text in the finish "answer" field should be formatted as clean Markdown.
+5. **Minimize tool calls**: pick the **one** tool that answers the question; avoid calling the same tool twice with the same intent unless the first result was an error you can fix.
+6. **Never call coindcx_futures** for price, ticker, chart, candle, trend, analysis, "what is X trading at", or intraday direction — those are **public market data**. Use **coindcx** (futures_prices, candles, orderbook, …) and/or **smc_analysis** only.
+7. **coindcx_futures** is only for **authenticated trading**: create/cancel/edit **the user's** orders, list **their** orders, **their** positions, margin, leverage. If the user did not ask to trade or manage **their** account, do not use coindcx_futures.
+8. Prefer **smc_analysis** (structure/setup/signals) OR **coindcx** candles once for TA-style questions; do not chain redundant coindcx reads.
 
 SMC analysis tool routing:
 - For trend, structure, order blocks, FVGs, liquidity, trade setups: use "smc_analysis" tool
 - smc_analysis fetches its own candles from CoinDCX futures (B-XXX_USDT format); just pass symbol=BTC etc.
 
 CoinDCX tool routing:
-- For price/market data (public): ALWAYS use "coindcx" tool.
-- For trading actions (private): use "coindcx_futures" tool.
-- BTC pairs: spot uses BTCUSDT; futures uses B-BTC_USDT.`;
+- For **any** public price/market/candle/trend question: use **"coindcx"** only (never coindcx_futures).
+- For **authenticated** trade/account actions only: use **"coindcx_futures"** (requires API keys in the server environment).
+- Spot pairs use market names like BTCUSDT; CoinDCX USDT-margined **perpetual futures** use **B-BTC_USDT**, **B-ETH_USDT** (not "ETHUSDT" alone on the candles API).
+- If the user says "ETHUSDT futures", call coindcx with symbol **B-ETH_USDT** (action=futures_prices or candles). For SMC use symbol **ETH** or **B-ETH_USDT** per smc_analysis tool.`;
+}
+
+function preprocessContent(content: string): string {
+  // Strip common thinking/reasoning tags that might contain conflicting braces
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .trim();
 }
 
 function parseToolCall(content: string): ToolCall | null {
+  const cleanedContent = preprocessContent(content);
+  
   // 1. Try greedy extraction of everything that looks like a JSON block
-  const blocks = content.match(/\{[\s\S]*\}/g) || [];
+  const blocks = cleanedContent.match(/\{[\s\S]*\}/g) || [];
   
   for (const block of blocks) {
     try {
@@ -71,7 +87,7 @@ function parseToolCall(content: string): ToolCall | null {
   }
 
   // 2. Fallback: try to find any substring that starts with {"thought" or {"tool"
-  const fragments = content.split(/(\{"thought"|\{"tool")/);
+  const fragments = cleanedContent.split(/(\{"thought"|\{"tool")/);
   if (fragments.length > 1) {
     for (let i = 1; i < fragments.length; i += 2) {
       const frag = fragments[i] + fragments[i+1];

@@ -5,10 +5,10 @@ import ChatInput from './ChatInput';
 import { Sparkles, ArrowRight, BookOpen, Code2, Brain, BarChart3 } from 'lucide-react';
 
 const SUGGESTIONS = [
-  { label: 'Check Knowledge', prompt: 'What documents are available in my local knowledge base?', icon: BookOpen, color: '#60a5fa' },
-  { label: 'Analyze Code', prompt: 'Can you explain how the Sequelize models are defined in this project?', icon: Code2, color: '#34d399' },
-  { label: 'Test Thinking', prompt: 'Solve this step by step: What is the sum of all prime numbers less than 50?', icon: Brain, color: '#a78bfa' },
-  { label: 'Data Tasks', prompt: 'Show me a sample SQL table for tracking user preferences.', icon: BarChart3, color: '#fbbf24' },
+  { label: 'Intraday Trend', prompt: 'What is the current intraday trend of B-ETH_USDT?', icon: BarChart3, color: '#60a5fa' },
+  { label: 'SMC Analysis', prompt: 'Perform a full SMC analysis for BTCUSDT.', icon: Brain, color: '#a78bfa' },
+  { label: 'Knowledge Lookup', prompt: 'Find the Ichimoku indicator implementation in my indicator hub.', icon: BookOpen, color: '#34d399' },
+  { label: 'Code Explorer', prompt: 'Explain the folder structure of this ai-workspace project.', icon: Code2, color: '#fbbf24' },
 ];
 
 export default function ChatPanel() {

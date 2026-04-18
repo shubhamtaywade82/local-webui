@@ -63,16 +63,22 @@ function formatPositions(data: unknown): string {
 
 // ── Tool ─────────────────────────────────────────────────────────────────────
 
+const NO_KEYS_HINT =
+  'For prices, 24h change, candles, order book, and **trend / TA** use the **coindcx** tool (public; e.g. action=futures_prices or candles, symbol=B-ETH_USDT) or **smc_analysis**. ' +
+  'Use **coindcx_futures** only when the user explicitly asks to place/cancel/edit **their** orders, positions, margin, or leverage — and only if COINDCX_API_KEY + COINDCX_API_SECRET are set.';
+
 export class CoinDCXFuturesTool extends BaseTool {
   readonly name = 'coindcx_futures';
   readonly description =
-    'Trade and manage CoinDCX futures. Requires COINDCX_API_KEY + COINDCX_API_SECRET env vars. ' +
-    'Pair format: B-BTC_USDT, B-ETH_USDT etc. Actions: list_orders | create_order | cancel_order | ' +
+    'AUTHENTICATED ONLY: place/cancel/edit **your** CoinDCX futures orders, positions, margin, leverage. ' +
+    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. **Do not use** for market price, charts, or intraday trend — use **coindcx** or **smc_analysis** instead. ' +
+    'Pair format: B-BTC_USDT, B-ETH_USDT. Actions: list_orders | create_order | cancel_order | ' +
     'edit_order | positions | update_leverage | add_margin | remove_margin';
 
   readonly schema: ToolSchema = {
     name: 'coindcx_futures',
-    description: 'Trade and manage CoinDCX perpetual futures (authenticated)',
+    description:
+      'Authenticated futures trading only. Not for spot/futures **market data** (use coindcx or smc_analysis).',
     args: {
       action: {
         type: 'string',
@@ -130,8 +136,25 @@ export class CoinDCXFuturesTool extends BaseTool {
   };
 
   async execute(args: Record<string, unknown>): Promise<string> {
-    const action = String(args.action ?? '');
+    const action = String(args.action ?? '').trim();
     const pair = args.pair ? String(args.pair) : undefined;
+
+    if (!action || action === 'undefined' || action === 'null') {
+      return (
+        'Invalid coindcx_futures call: missing or empty `action`. ' +
+        'For market questions use **coindcx** (e.g. action=futures_prices, symbol=B-ETH_USDT) or **smc_analysis**. ' +
+        'Valid futures actions: list_orders | create_order | cancel_order | edit_order | positions | update_leverage | add_margin | remove_margin.'
+      );
+    }
+
+    const apiKey = process.env.COINDCX_API_KEY?.trim();
+    const apiSecret = process.env.COINDCX_API_SECRET?.trim();
+    if (!apiKey || !apiSecret) {
+      return (
+        'CoinDCX API keys are not configured (set COINDCX_API_KEY and COINDCX_API_SECRET for authenticated trading). ' +
+        NO_KEYS_HINT
+      );
+    }
 
     try {
       switch (action) {

@@ -221,6 +221,8 @@ export const db = {
   },
 
   async deleteConversation(id: string) {
+    await ConversationSummary.destroy({ where: { conversationId: id } });
+    await Artifact.destroy({ where: { conversationId: id } });
     await Message.destroy({ where: { conversationId: id } });
     await Conversation.destroy({ where: { id } });
   },
@@ -254,7 +256,38 @@ export const db = {
     return { summary: row.summary, messageCount: row.messageCount };
   },
 
-  async upsertSummary(conversationId: string, summary: string, messageCount: number) {
+  /**
+   * Persist rolling summary for long threads. Requires a `conversations` row — if the DB has
+   * orphaned messages (no parent row), we create the parent first to satisfy FK constraints.
+   */
+  async upsertSummary(
+    conversationId: string,
+    summary: string,
+    messageCount: number,
+    meta?: { title?: string; model?: string; userId?: string | null }
+  ) {
+    let conv = await Conversation.findByPk(conversationId);
+    if (!conv) {
+      const title = (meta?.title ?? 'Chat').slice(0, 500);
+      const model = meta?.model ?? 'default';
+      const userId = meta?.userId ?? null;
+      try {
+        await Conversation.create({ id: conversationId, title, model, userId });
+      } catch (e: unknown) {
+        const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: string }).name) : '';
+        if (name === 'SequelizeUniqueConstraintError') {
+          // Another request created the row
+        } else {
+          throw e;
+        }
+      }
+      conv = await Conversation.findByPk(conversationId);
+    }
+    if (!conv) {
+      console.warn(`[db] upsertSummary: no conversation row for ${conversationId}; skip summary write`);
+      return;
+    }
+
     const existing = await ConversationSummary.findOne({ where: { conversationId } });
     if (existing) {
       await existing.update({ summary, messageCount });

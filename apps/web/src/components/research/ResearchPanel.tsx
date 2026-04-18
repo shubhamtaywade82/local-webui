@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   FileText, Activity, Database, Search,
   ChevronRight, ChevronDown, CheckCircle2,
-  XCircle, Loader2, Wrench, BookOpen, Layers
+  XCircle, Loader2, Wrench, BookOpen, Layers,
+  Brain
 } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
 import KnowledgeUpload from './KnowledgeUpload';
-import { useEffect } from 'react';
 
 // ── Types ──
 
@@ -21,10 +21,6 @@ interface AgentStep {
   timestamp?: number;
   pendingApproval?: boolean;
 }
-
-// ── Sample data for demonstration ──
-
-// Removed sample data
 
 interface KbStats {
   totalDirectories: number;
@@ -88,7 +84,6 @@ function AgentTimeline({
 
         return (
           <div key={step.id} className="relative">
-            {/* Timeline Connector */}
             {!isLast && (
               <div
                 className="absolute left-[11px] top-8 bottom-0 w-px"
@@ -149,11 +144,8 @@ function AgentTimeline({
                   </div>
                 )}
 
-                {/* Expanded Details */}
                 {isExpanded && (step.input || step.output) && (
-                  <div
-                    className="mt-2 space-y-3"
-                  >
+                  <div className="mt-2 space-y-3">
                     {step.input && (
                       <div className="space-y-1">
                         <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Input Arguments</div>
@@ -227,8 +219,6 @@ function KnowledgeBaseView() {
   return (
     <div className="p-3 space-y-4">
       <KnowledgeUpload />
-
-      {/* Stats */}
       <div
         className="grid grid-cols-3 gap-2 p-3 rounded-lg"
         style={{
@@ -251,8 +241,6 @@ function KnowledgeBaseView() {
           );
         })}
       </div>
-
-      {/* File List */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
@@ -266,7 +254,6 @@ function KnowledgeBaseView() {
             Refresh
           </button>
         </div>
-        
         {loading ? (
           <div className="py-8 flex justify-center">
             <Loader2 size={20} className="animate-spin" style={{ color: 'var(--accent)' }} />
@@ -295,20 +282,107 @@ function KnowledgeBaseView() {
   );
 }
 
+function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
+  const actions = [
+    { 
+      title: 'Intraday Trend', 
+      desc: 'Get current 15m/1h trend for ETH Perp', 
+      prompt: 'What is the current intraday trend of B-ETH_USDT?',
+      icon: Activity,
+      color: 'var(--accent)'
+    },
+    { 
+      title: 'SMC Analysis', 
+      desc: 'Full Market Structure & OB scan', 
+      prompt: 'Perform a full SMC analysis for BTCUSDT.',
+      icon: Layers,
+      color: '#a78bfa'
+    },
+    { 
+      title: 'Indicator Hub', 
+      desc: 'Lookup logic in indicator_hub', 
+      prompt: 'Find the Ichimoku indicator implementation in my indicator hub.',
+      icon: BookOpen,
+      color: '#34d399'
+    },
+    { 
+      title: 'Futures Ticker', 
+      desc: 'Get live CoinDCX futures mark price', 
+      prompt: 'Check B-ETH_USDT futures price and 24h change.',
+      icon: Database,
+      color: '#fbbf24'
+    }
+  ];
+
+  return (
+    <div className="p-3 space-y-3">
+      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
+        Quick Trading Actions
+      </div>
+      <div className="grid grid-cols-1 gap-2">
+        {actions.map((action, i) => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={i}
+              onClick={() => onAction(action.prompt)}
+              className="flex items-start gap-3 p-3 rounded-xl border text-left transition-all hover:scale-[1.01] hover:border-[var(--accent)] active:scale-[0.99]"
+              style={{ 
+                background: 'var(--bg-tertiary)', 
+                borderColor: 'var(--border-subtle)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              }}
+            >
+              <div 
+                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ background: `${action.color}15` }}
+              >
+                <Icon size={20} style={{ color: action.color }} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{action.title}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{action.desc}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <div 
+        className="mt-4 p-3 rounded-lg border border-dashed"
+        style={{ borderColor: 'var(--border-subtle)', background: 'rgba(255,255,255,0.01)' }}
+      >
+        <div className="flex items-center gap-2 mb-1.5">
+          <Brain size={14} style={{ color: 'var(--accent)' }} />
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Agent Status</span>
+        </div>
+        <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          The agent is now using tag-aware parsing (v2.1). Technical reasoning in &lt;think&gt; tags is filtered before execution.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ──
 
-type TabId = 'sources' | 'agent' | 'knowledge';
+type TabId = 'sources' | 'agent' | 'knowledge' | 'strategy';
 
 export default function ResearchPanel() {
-  const [activeTab, setActiveTab] = useState<TabId>('agent');
-  const { activeConversation, submitAgentApproval } = useChatStore();
+  const [activeTab, setActiveTab] = useState<TabId>('strategy');
+  const { activeConversation, submitAgentApproval, sendMessage, createNewConversation } = useChatStore();
+
+  const handleQuickAction = (prompt: string) => {
+    if (!activeConversation) createNewConversation();
+    setTimeout(() => sendMessage(prompt), 50);
+  };
 
   const sources = Array.from(new Set((activeConversation?.messages ?? []).flatMap(m => m.sources ?? [])));
 
   const tabs: { id: TabId; label: string; icon: any }[] = [
-    { id: 'sources', label: 'Sources', icon: FileText },
+    { id: 'strategy', label: 'Strategy', icon: Brain },
     { id: 'agent', label: 'Agent', icon: Activity },
     { id: 'knowledge', label: 'KB', icon: Database },
+    { id: 'sources', label: 'Sources', icon: FileText },
   ];
 
   return (
@@ -341,6 +415,9 @@ export default function ResearchPanel() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto">
+        {activeTab === 'strategy' && (
+          <StrategyView onAction={handleQuickAction} />
+        )}
         {activeTab === 'sources' && (
           sources.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12" style={{ color: 'var(--text-muted)' }}>

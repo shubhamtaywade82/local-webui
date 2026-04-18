@@ -17,24 +17,45 @@ async function fetchCandles(pair: string, interval: string, limit: number): Prom
   const ms = intervalMs[interval] ?? 3_600_000;
   const startTime = now - ms * (limit + 10);
 
-  const url = `${PUBLIC_BASE}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}`;
+  const url = `${PUBLIC_BASE}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`CoinDCX candles ${res.status}: ${await res.text()}`);
-  const raw: any[] = await res.json();
+  const raw: unknown = await res.json();
+  if (!Array.isArray(raw)) return [];
   // Sort ascending by time (API returns descending)
   return [...raw]
-    .sort((a, b) => a.time - b.time)
+    .filter((c): c is Record<string, unknown> => c != null && typeof c === 'object' && 'time' in c)
+    .sort((a, b) => Number(a.time) - Number(b.time))
     .map(c => ({
-      open: parseFloat(c.open), high: parseFloat(c.high),
-      low: parseFloat(c.low), close: parseFloat(c.close),
-      volume: parseFloat(c.volume ?? 0), time: c.time,
-    }));
+      open: parseFloat(String(c.open)), high: parseFloat(String(c.high)),
+      low: parseFloat(String(c.low)), close: parseFloat(String(c.close)),
+      volume: parseFloat(String(c.volume ?? 0)), time: Number(c.time),
+    }))
+    .filter(c => Number.isFinite(c.close) && Number.isFinite(c.time));
 }
 
-// Resolve symbol like "BTC", "BTCUSDT", "SOL" → CoinDCX futures pair B-BTC_USDT
-function toPair(sym: string): string {
-  const s = sym.toUpperCase().replace(/USDT$|\/USDT$/, '').replace(/^B-/, '').replace(/_USDT$/, '');
-  return `B-${s}_USDT`;
+/**
+ * Resolve to CoinDCX futures pair `B-BASE_USDT`.
+ * Accepts ETH, BTCUSDT, B-ETH_USDT, perp:ETH — must not double-strip `B-ETH_USDT` into `B-ETH__USDT`.
+ */
+export function toCoinDcxFuturesPair(sym: string): string {
+  let t = sym.trim().toUpperCase();
+  if (/^B-[A-Z0-9]+_USDT$/.test(t)) return t;
+  t = t.replace(/^PERP:?/i, '').replace(/^F:?/i, '');
+  t = t.replace(/-?USDT$/i, '');
+  t = t.replace(/^B-/, '');
+  t = t.replace(/_/g, '');
+  if (!t || !/^[A-Z0-9]+$/.test(t)) {
+    throw new Error(`Invalid futures symbol "${sym}" — use e.g. ETH, BTC, or B-ETH_USDT`);
+  }
+  return `B-${t}_USDT`;
+}
+
+function noCandlesMsg(pair: string, interval: string): string {
+  return (
+    `No OHLCV candles from CoinDCX for pair=${pair} interval=${interval}. ` +
+    `If you passed a full pair, it must look like B-ETH_USDT (not ETH/USDT). Try a higher limit or another interval.`
+  );
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
@@ -47,9 +68,10 @@ function fmtPrice(v: number | null | undefined): string {
 }
 
 function formatSmcSummary(tf: string, last: BarResult, candles: Candle[]): string {
-  const close = candles[candles.length - 1].close;
+  const lastBar = candles[candles.length - 1];
+  const close = lastBar?.close ?? null;
   const lines: string[] = [`=== ${tf} SMC Analysis ===`];
-  lines.push(`Price: ${fmtPrice(close)} | ATR14: ${fmtPrice(last.atr14)}`);
+  lines.push(`Price: ${fmtPrice(close ?? undefined)} | ATR14: ${fmtPrice(last.atr14)}`);
   lines.push(`Structure bias: ${biasLabel(last.structureBias)} | MS trend: ${biasLabel(last.msTrend)}`);
   lines.push(`Long score: ${last.longScore}/8 | Short score: ${last.shortScore}/8`);
 
@@ -167,7 +189,8 @@ function findRecentSignals(results: BarResult[], candles: Candle[], lookback = 1
   const recent = results.slice(-lookback);
   const signals: string[] = [];
   for (const r of recent) {
-    const ts = new Date(candles[r.barIndex].time).toISOString();
+    const bar = candles[r.barIndex];
+    const ts = bar ? new Date(bar.time).toISOString() : '?';
     if (r.longSignal) signals.push(`[${ts}] LONG signal (score ${r.longScore})`);
     if (r.shortSignal) signals.push(`[${ts}] SHORT signal (score ${r.shortScore})`);
   }
@@ -181,7 +204,7 @@ export class SmcAnalysisTool extends BaseTool {
   readonly description =
     'Smart Money Concepts (SMC) multi-timeframe analysis on CoinDCX futures. ' +
     'Computes order blocks, BOS/CHoCH, liquidity sweeps, FVGs, volume profile, session levels, ' +
-    'confluence scoring, and MTF trade setup. Pair examples: BTC, ETH, SOL (auto-maps to B-XXX_USDT). ' +
+    'confluence scoring, and MTF trade setup. Symbol: BTC, ETH, SOL or full pair B-ETH_USDT (CoinDCX futures). ' +
     'Actions: full_analysis | structure | order_blocks | liquidity | fvg | setup | signals';
 
   readonly schema: ToolSchema = {
@@ -195,7 +218,7 @@ export class SmcAnalysisTool extends BaseTool {
       },
       symbol: {
         type: 'string',
-        description: 'Crypto symbol: BTC, ETH, SOL, etc. (maps to B-XXX_USDT futures)',
+        description: 'BTC, ETH, SOL, etc., or full futures pair e.g. B-ETH_USDT (CoinDCX)',
         required: true,
       },
       htf: {
@@ -231,7 +254,7 @@ export class SmcAnalysisTool extends BaseTool {
     const symbol = args.symbol ? String(args.symbol) : '';
     if (!symbol) return 'Error: symbol required (e.g. BTC, ETH, SOL)';
 
-    const pair = toPair(symbol);
+    const pair = toCoinDcxFuturesPair(symbol);
     const htfTf = String(args.htf ?? '1h');
     const ltfTf = String(args.ltf ?? '15m');
     const limit = Math.min(500, parseInt(String(args.limit ?? '150'), 10) || 150);
@@ -248,12 +271,13 @@ export class SmcAnalysisTool extends BaseTool {
             fetchCandles(pair, htfTf, limit),
             fetchCandles(pair, ltfTf, limit),
           ]);
-          if (!htfCandles.length || !ltfCandles.length) return `No candle data for ${pair}`;
+          if (!htfCandles.length || !ltfCandles.length) return noCandlesMsg(pair, `${htfTf}/${ltfTf}`);
 
           const htfResults = runSmcEngine(htfCandles, cfg);
           const ltfResults = runSmcEngine(ltfCandles, cfg);
-          const htfLast = htfResults[htfResults.length - 1];
-          const ltfLast = ltfResults[ltfResults.length - 1];
+          const htfLast = htfResults.at(-1);
+          const ltfLast = ltfResults.at(-1);
+          if (!htfLast || !ltfLast) return `SMC produced no results for ${pair}`;
 
           return [
             formatSmcSummary(htfTf.toUpperCase(), htfLast, htfCandles),
@@ -270,14 +294,20 @@ export class SmcAnalysisTool extends BaseTool {
             fetchCandles(pair, htfTf, limit),
             fetchCandles(pair, ltfTf, limit),
           ]);
-          const htfLast = runSmcEngine(htfCandles, cfg).at(-1)!;
-          const ltfLast = runSmcEngine(ltfCandles, cfg).at(-1)!;
+          if (!htfCandles.length || !ltfCandles.length) {
+            return noCandlesMsg(pair, !htfCandles.length ? htfTf : ltfTf);
+          }
+          const htfLast = runSmcEngine(htfCandles, cfg).at(-1);
+          const ltfLast = runSmcEngine(ltfCandles, cfg).at(-1);
+          if (!htfLast || !ltfLast) return `SMC produced no results for ${pair}`;
           return buildTradeSetup(htfLast, ltfLast, pair, htfTf, ltfTf);
         }
 
         case 'structure': {
           const candles = await fetchCandles(pair, htfTf, limit);
-          const last = runSmcEngine(candles, cfg).at(-1)!;
+          if (!candles.length) return noCandlesMsg(pair, htfTf);
+          const last = runSmcEngine(candles, cfg).at(-1);
+          if (!last) return `SMC produced no bars for ${pair} [${htfTf}]`;
           return formatSmcSummary(htfTf.toUpperCase(), last, candles).split('\n').filter(l =>
             l.includes('===') || l.includes('Structure') || l.includes('BOS') || l.includes('CHoCH') || l.includes('Price')
           ).join('\n');
@@ -285,7 +315,9 @@ export class SmcAnalysisTool extends BaseTool {
 
         case 'order_blocks': {
           const candles = await fetchCandles(pair, ltfTf, limit);
-          const last = runSmcEngine(candles, cfg).at(-1)!;
+          if (!candles.length) return noCandlesMsg(pair, ltfTf);
+          const last = runSmcEngine(candles, cfg).at(-1);
+          if (!last) return `SMC produced no bars for ${pair} [${ltfTf}]`;
           const lines = [`Order Blocks for ${pair} [${ltfTf}]:`];
           if (last.bullObValid) lines.push(`Bull OB: ${fmtPrice(last.bullObLo)} – ${fmtPrice(last.bullObHi)}${last.inBullOb ? ' ← PRICE INSIDE (active support)' : ''}`);
           else lines.push('Bull OB: none valid');
@@ -296,7 +328,9 @@ export class SmcAnalysisTool extends BaseTool {
 
         case 'liquidity': {
           const candles = await fetchCandles(pair, ltfTf, limit);
-          const last = runSmcEngine(candles, cfg).at(-1)!;
+          if (!candles.length) return noCandlesMsg(pair, ltfTf);
+          const last = runSmcEngine(candles, cfg).at(-1);
+          if (!last) return `SMC produced no bars for ${pair} [${ltfTf}]`;
           const lines = [`Liquidity levels for ${pair} [${ltfTf}]:`];
           if (last.pdh) lines.push(`PDH: ${fmtPrice(last.pdh)}${last.pdhSweep ? ' ← SWEPT today' : ''}`);
           if (last.pdl) lines.push(`PDL: ${fmtPrice(last.pdl)}${last.pdlSweep ? ' ← SWEPT today' : ''}`);
@@ -309,8 +343,10 @@ export class SmcAnalysisTool extends BaseTool {
 
         case 'fvg': {
           const candles = await fetchCandles(pair, ltfTf, limit);
+          if (!candles.length) return noCandlesMsg(pair, ltfTf);
           const results = runSmcEngine(candles, { ...cfg, fvgConfluence: true });
-          const last = results.at(-1)!;
+          const last = results.at(-1);
+          if (!last) return `SMC produced no bars for ${pair} [${ltfTf}]`;
           if (!last.activeFvgs.length) return `No active FVGs for ${pair} [${ltfTf}]`;
           const lines = [`Active FVGs for ${pair} [${ltfTf}]:`];
           for (const f of last.activeFvgs) {
@@ -323,6 +359,7 @@ export class SmcAnalysisTool extends BaseTool {
 
         case 'signals': {
           const candles = await fetchCandles(pair, ltfTf, limit);
+          if (!candles.length) return noCandlesMsg(pair, ltfTf);
           const results = runSmcEngine(candles, cfg);
           return `Recent SMC signals for ${pair} [${ltfTf}]:\n${findRecentSignals(results, candles, 20)}`;
         }

@@ -51,26 +51,62 @@ function formatTicker(data: unknown[], symbol?: string): string {
   return `Spot ticker (${filtered.length} match for "${symbol}" of ${markets.length} total):\n${rows.join('\n')}`;
 }
 
-/** Futures current prices — symbol format: B-BTC_USDT */
+/** Map ETHUSDT / BTC / B-BTC_USDT → canonical CoinDCX futures keys for matching */
+function futuresFilterKeys(symbol?: string): string[] {
+  if (!symbol?.trim()) return [];
+  const u = symbol.trim().toUpperCase().replace(/-/g, '');
+  if (/^B-[A-Z0-9]+_USDT$/.test(u)) return [u];
+  const m = u.match(/^([A-Z0-9]{2,10})USDT$/);
+  if (m) return [`B-${m[1]}_USDT`];
+  return [u];
+}
+
+/**
+ * CoinDCX `/market_data/v3/current_prices/futures/rt` returns `{ ts, vs, prices: { "B-ETH_USDT": { mp, ls, h, l, pc, ... } } }`.
+ * Older code assumed an array of rows — normalize to `{ symbol, ...fields }` rows.
+ */
+function normalizeFuturesRtPayload(data: unknown): { symbol: string; [k: string]: unknown }[] {
+  const d = data as Record<string, unknown> | null;
+  if (!d || typeof d !== 'object') return [];
+  const prices = d.prices;
+  if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+    return Object.entries(prices as Record<string, Record<string, unknown>>).map(([key, v]) => ({
+      symbol: key,
+      ...(typeof v === 'object' && v ? v : {}),
+    }));
+  }
+  if (Array.isArray(data)) return data as { symbol: string }[];
+  return Object.values(d).filter((x): x is { symbol: string } => x != null && typeof x === 'object' && 'symbol' in (x as object)) as { symbol: string }[];
+}
+
+/** Futures current prices — symbol: ETH, ETHUSDT, B-ETH_USDT */
 function formatFuturesPrices(data: unknown, symbol?: string): string {
-  // Response is array or object keyed by symbol
-  const entries: any[] = Array.isArray(data) ? data : Object.values(data as object);
-  const filtered = symbol
-    ? entries.filter((e: any) => {
-        const key = (e.symbol ?? e.pair ?? JSON.stringify(e)).toUpperCase();
-        return key.includes(symbol.toUpperCase());
-      })
-    : entries.slice(0, 20);
+  const entries = normalizeFuturesRtPayload(data);
+  const keys = futuresFilterKeys(symbol);
+  const wantAll = !symbol?.trim();
+
+  const filtered = wantAll
+    ? entries.slice(0, 25)
+    : entries.filter((e: any) => {
+        const sym = String(e.symbol ?? e.pair ?? '').toUpperCase();
+        return keys.some(k => sym === k);
+      });
 
   if (filtered.length === 0) {
     const sample = entries.slice(0, 5).map((e: any) => e.symbol ?? e.pair ?? '?').join(', ');
-    return `No futures match for "${symbol}". Sample: ${sample}\nTip: Use format B-BTC_USDT`;
+    return `No futures match for "${symbol ?? '(none)'}". Try symbol=ETH, ETHUSDT, or B-ETH_USDT. Sample keys: ${sample || 'n/a'}`;
   }
 
-  const rows = filtered.map((e: any) =>
-    `${e.symbol ?? e.pair}: mark=${e.mark_price ?? e.markPrice ?? '?'} index=${e.index_price ?? e.indexPrice ?? '?'} last=${e.last_price ?? e.lastPrice ?? '?'} funding=${e.funding_rate ?? e.fundingRate ?? 'n/a'}`
-  );
-  return `Futures prices (${filtered.length} match):\n${rows.join('\n')}`;
+  const row = (e: any) => {
+    const sym = e.symbol ?? e.pair ?? '?';
+    const mark = e.mp ?? e.mark_price ?? e.markPrice ?? '?';
+    const last = e.ls ?? e.last_price ?? e.lastPrice ?? '?';
+    const idx = e.index_price ?? e.indexPrice ?? '?';
+    const fr = e.fr ?? e.funding_rate ?? e.fundingRate ?? 'n/a';
+    const pc = e.pc != null ? `${e.pc}%` : 'n/a';
+    return `${sym}: mark=${mark} last=${last} index=${idx} 24h%=${pc} funding=${fr}`;
+  };
+  return `Futures prices (${filtered.length} match):\n${filtered.map(row).join('\n')}`;
 }
 
 function formatOrderbook(data: any, pair: string): string {
@@ -102,7 +138,8 @@ function formatCandles(data: unknown[], pair: string, interval: string): string 
 export class CoinDCXTool extends BaseTool {
   readonly name = 'coindcx';
   readonly description =
-    'Fetch live crypto market data from CoinDCX. If unsure of a symbol, call action=markets with symbol=BTC first to discover valid pairs, then call spot_ticker with the exact pair. Spot pairs: BTCINR, BTCUSDT. Futures: B-BTC_USDT.';
+    '**Primary tool for CoinDCX market data** (no API keys): spot + futures prices, candles, order book, trades, market lists. ' +
+    'Use this for trends and "what is X trading at". If unsure of a symbol, action=markets with symbol=BTC. Spot: BTCINR, BTCUSDT. Futures: B-BTC_USDT, B-ETH_USDT.';
   readonly schema: ToolSchema = {
     name: 'coindcx',
     description: 'Fetch live crypto market data from CoinDCX exchange (spot + futures)',
@@ -116,7 +153,7 @@ export class CoinDCXTool extends BaseTool {
       symbol: {
         type: 'string',
         description:
-          'Filter symbol. Spot: BTCINR, ETHINR, BTCUSDT. Futures: B-BTC_USDT, B-ETH_USDT. Omit for all.',
+          'Filter symbol. Spot: BTCINR, ETHINR, BTCUSDT. Futures: B-BTC_USDT, B-ETH_USDT, or shorthand ETHUSDT / BTC (maps to B-*_USDT). Omit for all.',
         required: false,
       },
       interval: {

@@ -32,6 +32,8 @@ import { knowledgeEngine } from "../services/knowledgeSingleton";
 const knowledge = knowledgeEngine;
 const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-in-prod';
 
+const PUBLIC_COINDCX = 'https://public.coindcx.com';
+
 // Crypto symbols to detect in chat mode for live data injection
 const CRYPTO_SYMBOLS = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE','DOT','AVAX','MATIC','LINK','LTC','UNI','ATOM'];
 const PRICE_KEYWORDS = /\b(price|rate|worth|value|cost|ticker|market|trading at|how much|current)\b/i;
@@ -89,9 +91,53 @@ function findTicker(tickers: any[], sym: string, suffix: string): any | undefine
     });
 }
 
+/**
+ * Resolve base assets (BTC, ETH, …) for live CoinDCX context.
+ * Uses word boundaries — `upper.includes("ADA")` must NOT match "**intrADAy**".
+ */
+function extractCryptoBases(message: string): string[] {
+  const bases = new Set<string>();
+
+  for (const m of message.toUpperCase().matchAll(/\b([A-Z]{2,10})USDT\b/g)) {
+    bases.add(m[1]);
+  }
+
+  if (/\bETH\s+USD\b/i.test(message)) bases.add('ETH');
+  if (/\bBTC\s+USD\b/i.test(message)) bases.add('BTC');
+
+  for (const sym of CRYPTO_SYMBOLS) {
+    if (new RegExp(`\\b${sym}\\b`, 'i').test(message)) bases.add(sym);
+    if (new RegExp(`\\b${sym}USDT\\b`, 'i').test(message)) bases.add(sym);
+  }
+
+  const order = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'DOT', 'AVAX', 'MATIC', 'LINK', 'LTC', 'UNI', 'ATOM'];
+  return [...bases].sort(
+    (a, b) => (order.indexOf(a) === -1 ? 999 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 999 : order.indexOf(b))
+  );
+}
+
+async function fetchFuturesRtLine(pair: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${PUBLIC_COINDCX}/market_data/v3/current_prices/futures/rt`, {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown>;
+    const row = data?.prices && typeof data.prices === 'object'
+      ? (data.prices as Record<string, Record<string, unknown>>)[pair]
+      : undefined;
+    if (!row || typeof row !== 'object') return null;
+    const mark = row.mp ?? row.mark_price;
+    const last = row.ls ?? row.last_price;
+    return `${pair} (CoinDCX futures RT): mark=${mark} last=${last} 24h_high=${row.h} 24h_low=${row.l} 24h_change_pct=${row.pc}%`;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchLiveCryptoContext(message: string): Promise<string> {
   const upper = message.toUpperCase();
-  const mentioned = CRYPTO_SYMBOLS.filter(s => upper.includes(s));
+  const mentioned = extractCryptoBases(message);
   const wantsTrend = TREND_KEYWORDS.test(message);
   const wantsFutures = FUTURES_KEYWORDS.test(message);
   if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend && !wantsFutures)) return '';
@@ -114,16 +160,23 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
         try {
           const now = Date.now();
           const startTime = now - msPerBar * (limit + 5);
-          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=${interval}&limit=${limit}&startTime=${startTime}`;
+          const url = `${PUBLIC_COINDCX}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
           const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+          let gotTrend = false;
           if (res.ok) {
-            const candles: any[] = await res.json();
+            const raw = await res.json();
+            const candles = Array.isArray(raw) ? raw : [];
             if (candles.length > 0) {
               const sorted = [...candles].sort((a, b) => a.time - b.time);
               const last = sorted[sorted.length - 1];
               priceRows.push(`${pair} (futures ${label}): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
               parts.push(`${sym}/USDT FUTURES TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
+              gotTrend = true;
             }
+          }
+          if (!gotTrend) {
+            const rt = await fetchFuturesRtLine(pair);
+            if (rt) priceRows.push(rt);
           }
         } catch { /* best effort */ }
       }
@@ -158,10 +211,11 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
         try {
           const now = Date.now();
           const startTime = now - msPerBar * (limit + 5);
-          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=${interval}&limit=${limit}&startTime=${startTime}`;
+          const url = `${PUBLIC_COINDCX}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
           const candleRes = await fetch(url, { signal: AbortSignal.timeout(5_000) });
           if (candleRes.ok) {
-            const candles: any[] = await candleRes.json();
+            const raw = await candleRes.json();
+            const candles = Array.isArray(raw) ? raw : [];
             if (candles.length > 0) {
               const sorted = [...candles].sort((a, b) => a.time - b.time);
               trendParts.push(`${sym}/USDT TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
@@ -276,7 +330,11 @@ function handleWs(connection: any, req: any) {
         if (needsRefresh) {
           const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
           const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
-          await db.upsertSummary(currentConversationId, summary, history.length);
+          await db.upsertSummary(currentConversationId, summary, history.length, {
+            title: conversationTitle,
+            model: requestedModel,
+            userId,
+          });
           historyContext = `Conversation Summary:\n${summary}`;
         } else {
           historyContext = `Conversation Summary:\n${cached.summary}`;

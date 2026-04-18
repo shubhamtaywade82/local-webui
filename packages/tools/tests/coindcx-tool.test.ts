@@ -69,4 +69,18 @@ describe('CoinDCXTool', () => {
     expect(result).toContain('CoinDCX error');
     expect(result).toContain('Network down');
   });
+
+  it('futures_prices parses v3 rt envelope and matches ETHUSDT shorthand', async () => {
+    const mock = {
+      ts: 1,
+      vs: 2,
+      prices: {
+        'B-ETH_USDT': { mp: 2400.5, ls: 2399.1, h: 2450, l: 2350, pc: -1.2, fr: 0.0001 },
+      },
+    };
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => mock } as any);
+    const result = await tool.execute({ action: 'futures_prices', symbol: 'ETHUSDT' });
+    expect(result).toContain('B-ETH_USDT');
+    expect(result).toContain('2400.5');
+  });
 });
