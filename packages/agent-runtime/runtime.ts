@@ -31,7 +31,10 @@ When the task is complete, use the "finish" tool:
 Rules:
 - ONLY respond with JSON — no prose, no markdown, no explanation outside the JSON
 - Always include "thought" to explain your reasoning
-- Use finish when you have enough information to answer`;
+- Use finish ONLY when you have confirmed data — do NOT finish with assumptions or "not found" after a single failed lookup
+- If a tool returns no match, try alternative symbols/actions before concluding something doesn't exist
+- For coindcx: if spot_ticker finds nothing, call markets with symbol=BTC to discover exact pair names first
+- The finish answer field supports markdown — use headers, lists, tables as appropriate`;
 }
 
 function parseToolCall(content: string): ToolCall | null {
@@ -108,9 +111,10 @@ export class AgentRuntime {
           }
         });
         const answer = String(toolCall.args.answer ?? '');
-        const words = answer.split(' ');
-        for (const word of words) {
-          emit({ type: 'token', payload: { token: word + ' ' } });
+        // Emit in ~80-char chunks to preserve whitespace/newlines (word-split mangled markdown)
+        const chunkSize = 80;
+        for (let i = 0; i < answer.length; i += chunkSize) {
+          emit({ type: 'token', payload: { token: answer.slice(i, i + chunkSize) } });
         }
         emit({ type: 'done', payload: { iteration } });
         return;
