@@ -74,11 +74,17 @@ function formatTicker(data: unknown[], symbol?: string): string {
 /** Map ETHUSDT / BTC / B-BTC_USDT → canonical CoinDCX futures keys for matching */
 function futuresFilterKeys(symbol?: string): string[] {
   if (!symbol?.trim()) return [];
-  const u = symbol.trim().toUpperCase().replace(/-/g, '');
+  const u = symbol.trim().toUpperCase();
+  // If it's already a clean B-*_USDT symbol, use it as is
   if (/^B-[A-Z0-9]+_USDT$/.test(u)) return [u];
+  
+  // Shorthand: SOLUSDT -> B-SOL_USDT
   const m = u.match(/^([A-Z0-9]{2,10})USDT$/);
-  if (m) return [`B-${m[1]}_USDT`];
-  return [u];
+  if (m) return [`B-${m[1]}_USDT`, u];
+
+  // Fallback: strip junk but try to maintain the B- prefix if present
+  const cleaned = u.replace(/[^-A-Z0-9_]/g, '');
+  return [cleaned, u];
 }
 
 /**
