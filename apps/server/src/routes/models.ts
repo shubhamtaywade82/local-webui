@@ -1,15 +1,21 @@
 import { FastifyInstance } from "fastify";
-import { getOllamaBase, getOllamaHeaders } from "@workspace/ollama-client";
+import {
+  getOllamaBase,
+  getOllamaHeaders,
+  resolveOllamaProvider,
+} from "@workspace/ollama-client";
 
-const OLLAMA_BASE = getOllamaBase();
-const OLLAMA_HEADERS = getOllamaHeaders();
+type ModelsQuery = {
+  provider?: string;
+};
 
 export default async function routes(app: FastifyInstance) {
   // List available Ollama models
-  app.get("/", async (_req, res) => {
+  app.get("/", async (req, res) => {
+    const provider = resolveOllamaProvider((req.query as ModelsQuery | undefined)?.provider);
     try {
-      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`, {
-        headers: OLLAMA_HEADERS
+      const ollamaRes = await fetch(`${getOllamaBase(provider)}/api/tags`, {
+        headers: getOllamaHeaders(provider)
       });
       if (!ollamaRes.ok) {
         res.code(502).send({ error: "Ollama unreachable", status: ollamaRes.status });
@@ -17,6 +23,7 @@ export default async function routes(app: FastifyInstance) {
       }
       const data = await ollamaRes.json() as { models?: any[] };
       return {
+        provider,
         models: (data.models || []).map((m: any) => ({
           name: m.name,
           size: m.size,
@@ -31,17 +38,19 @@ export default async function routes(app: FastifyInstance) {
   });
 
   // Health check for Ollama
-  app.get("/health", async (_req, res) => {
+  app.get("/health", async (req, res) => {
+    const provider = resolveOllamaProvider((req.query as ModelsQuery | undefined)?.provider);
     try {
-      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`, {
-        headers: OLLAMA_HEADERS
+      const ollamaRes = await fetch(`${getOllamaBase(provider)}/api/tags`, {
+        headers: getOllamaHeaders(provider)
       });
       return {
+        provider,
         ollama: ollamaRes.ok ? "connected" : "error",
         timestamp: new Date().toISOString()
       };
     } catch {
-      return { ollama: "disconnected", timestamp: new Date().toISOString() };
+      return { provider, ollama: "disconnected", timestamp: new Date().toISOString() };
     }
   });
 }

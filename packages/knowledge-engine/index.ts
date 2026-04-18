@@ -77,7 +77,11 @@ export class KnowledgeEngine {
   /**
    * Powerful Semantic Retrieval (DB-backed)
    */
-  async retrieve(query: string, options: SearchOptions = {}): Promise<ScoredChunk[]> {
+  async retrieve(
+    query: string,
+    options: SearchOptions = {},
+    provider: "local" | "cloud" = "local"
+  ): Promise<ScoredChunk[]> {
     // Try persistent DB retrieval first
     const persistentResults = await retrievePersistent(query, this.pool, options.limit || 5);
     
@@ -105,15 +109,17 @@ export class KnowledgeEngine {
       candidateChunks.push(...(this.chunkMap.get(doc.path) || []));
     }
 
-    const queryEmbedding = await generateEmbedding(query);
     let vectorScores: { chunkId: string; similarity: number }[] | null = null;
     
-    if (queryEmbedding) {
+    if (provider === "local") {
+      const queryEmbedding = await generateEmbedding(query, provider);
+      if (queryEmbedding) {
       const vectorResults = this.vectorStore.search(queryEmbedding, 50);
       vectorScores = vectorResults.map(r => ({
         chunkId: r.chunk.id,
         similarity: r.similarity
       }));
+      }
     }
 
     return hybridSearch(query, candidateChunks, vectorScores, options);

@@ -1,6 +1,5 @@
-import { useEffect } from 'react';
 import {
-  PanelLeft, PanelRight, Code2, MessageSquare, BookOpen
+  PanelLeft, Code2, MessageSquare, BookOpen
 } from 'lucide-react';
 import { useResizablePanels, type PanelConfig } from '../../hooks/useResizablePanels';
 import Sidebar from './Sidebar';

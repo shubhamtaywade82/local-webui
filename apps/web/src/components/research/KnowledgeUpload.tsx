@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 
 export default function KnowledgeUpload() {
   const [isUploading, setIsUploading] = useState(false);

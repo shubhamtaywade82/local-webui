@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Save } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
 
@@ -7,18 +7,34 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ onClose }: SettingsModalProps) {
-  const { state, dispatch } = useChatStore();
+  const { state, dispatch, fetchModels, checkOllamaStatus } = useChatStore();
   
   // Local state for the form so we can cancel without saving
-  const [model, setModel] = useState(state.model);
+  const [providerMode, setProviderMode] = useState(state.providerMode);
+  const [modelsByProvider, setModelsByProvider] = useState({
+    local: state.providerConfigs.local.model,
+    cloud: state.providerConfigs.cloud.model
+  });
   const [isThinkingEnabled, setIsThinkingEnabled] = useState(state.isThinkingEnabled);
   const [systemPrompt, setSystemPrompt] = useState(state.systemPrompt || '');
   const [agentMode, setAgentMode] = useState(state.agentMode);
   const [agentStepMode, setAgentStepMode] = useState(state.agentStepMode);
   const [maxIterations, setMaxIterations] = useState(state.maxIterations);
 
+  useEffect(() => {
+    setModelsByProvider({
+      local: state.providerConfigs.local.model,
+      cloud: state.providerConfigs.cloud.model
+    });
+  }, [state.providerConfigs.local.model, state.providerConfigs.cloud.model]);
+
+  const currentModels = state.providerConfigs[providerMode].availableModels;
+  const currentModel = modelsByProvider[providerMode];
+
   const handleSave = () => {
-    dispatch({ type: 'SET_MODEL', model });
+    dispatch({ type: 'SET_MODEL', provider: 'local', model: modelsByProvider.local });
+    dispatch({ type: 'SET_MODEL', provider: 'cloud', model: modelsByProvider.cloud });
+    dispatch({ type: 'SET_PROVIDER_MODE', mode: providerMode });
     
     // Toggle thinking if it changed from the current state
     if (state.isThinkingEnabled !== isThinkingEnabled) {
@@ -55,11 +71,16 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           {/* Model Selection */}
           <div className="space-y-2">
             <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              Default Model
+              Provider
             </label>
             <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
+              value={providerMode}
+              onChange={(e) => {
+                const nextProvider = e.target.value as 'local' | 'cloud';
+                setProviderMode(nextProvider);
+                void fetchModels(nextProvider);
+                void checkOllamaStatus(nextProvider);
+              }}
               className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
               style={{
                 background: 'var(--bg-tertiary)',
@@ -67,7 +88,29 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 color: 'var(--text-primary)'
               }}
             >
-              {state.availableModels.map(m => (
+              <option value="local">Local Ollama</option>
+              <option value="cloud">Ollama Cloud</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Model
+            </label>
+            <select
+              value={currentModel}
+              onChange={(e) => setModelsByProvider((prev) => ({
+                ...prev,
+                [providerMode]: e.target.value
+              }))}
+              className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)'
+              }}
+            >
+              {currentModels.map(m => (
                 <option key={m} value={m}>{m}</option>
               ))}
             </select>

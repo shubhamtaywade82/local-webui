@@ -23,16 +23,26 @@ export interface Conversation {
 }
 
 export type StreamingState = 'idle' | 'thinking' | 'streaming' | 'done' | 'error';
+export type ProviderMode = 'local' | 'cloud';
+type ProviderStatus = 'connected' | 'disconnected' | 'checking';
+
+interface ProviderConfig {
+  model: string;
+  availableModels: string[];
+  ollamaStatus: ProviderStatus;
+}
 
 interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
+  providerMode: ProviderMode;
+  providerConfigs: Record<ProviderMode, ProviderConfig>;
   model: string;
   isThinkingEnabled: boolean;
   systemPrompt: string;
   streamingState: StreamingState;
   availableModels: string[];
-  ollamaStatus: 'connected' | 'disconnected' | 'checking';
+  ollamaStatus: ProviderStatus;
   agentMode: boolean;
   agentStepMode: 'auto' | 'step';
   maxIterations: number;
@@ -41,12 +51,13 @@ interface ChatState {
 // ── Actions ──
 
 type ChatAction =
-  | { type: 'SET_MODEL'; model: string }
+  | { type: 'SET_PROVIDER_MODE'; mode: ProviderMode }
+  | { type: 'SET_MODEL'; model: string; provider?: ProviderMode }
   | { type: 'TOGGLE_THINKING' }
   | { type: 'SET_SYSTEM_PROMPT'; prompt: string }
   | { type: 'SET_STREAMING_STATE'; state: StreamingState }
-  | { type: 'SET_OLLAMA_STATUS'; status: ChatState['ollamaStatus'] }
-  | { type: 'SET_MODELS'; models: string[] }
+  | { type: 'SET_OLLAMA_STATUS'; provider: ProviderMode; status: ProviderStatus }
+  | { type: 'SET_MODELS'; provider: ProviderMode; models: string[] }
   | { type: 'CREATE_CONVERSATION'; id: string; title: string; model: string }
   | { type: 'SET_ACTIVE_CONVERSATION'; id: string }
   | { type: 'DELETE_CONVERSATION'; id: string }
@@ -64,10 +75,50 @@ type ChatAction =
 
 // ── Reducer ──
 
+const DEFAULT_LOCAL_MODELS = [
+  'llama3.2:3b',
+  'qwen3.5:4b',
+  'qwen2.5:0.5b',
+  'deepseek-coder:6.7b'
+];
+
+const DEFAULT_CLOUD_MODELS = [
+  'gpt-oss:20b'
+];
+
+function syncActiveProviderState(state: ChatState, providerMode: ProviderMode): ChatState {
+  const activeProvider = state.providerConfigs[providerMode];
+  return {
+    ...state,
+    providerMode,
+    model: activeProvider.model,
+    availableModels: activeProvider.availableModels,
+    ollamaStatus: activeProvider.ollamaStatus
+  };
+}
+
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
+    case 'SET_PROVIDER_MODE':
+      return syncActiveProviderState(state, action.mode);
+
     case 'SET_MODEL':
-      return { ...state, model: action.model };
+      {
+        const provider = action.provider ?? state.providerMode;
+        const nextState: ChatState = {
+          ...state,
+          providerConfigs: {
+            ...state.providerConfigs,
+            [provider]: {
+              ...state.providerConfigs[provider],
+              model: action.model
+            }
+          }
+        };
+        return provider === state.providerMode
+          ? { ...nextState, model: action.model }
+          : nextState;
+      }
 
     case 'TOGGLE_THINKING':
       return { ...state, isThinkingEnabled: !state.isThinkingEnabled };
@@ -79,14 +130,49 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, streamingState: action.state };
 
     case 'SET_OLLAMA_STATUS':
-      return { ...state, ollamaStatus: action.status };
+      {
+        const nextState: ChatState = {
+          ...state,
+          providerConfigs: {
+            ...state.providerConfigs,
+            [action.provider]: {
+              ...state.providerConfigs[action.provider],
+              ollamaStatus: action.status
+            }
+          }
+        };
+        return action.provider === state.providerMode
+          ? { ...nextState, ollamaStatus: action.status }
+          : nextState;
+      }
 
     case 'SET_MODELS':
-      return {
-        ...state,
-        availableModels: action.models,
-        model: action.models.includes(state.model) ? state.model : (action.models[0] ?? state.model)
-      };
+      {
+        const existingModel = state.providerConfigs[action.provider].model;
+        const nextModel = action.models.includes(existingModel)
+          ? existingModel
+          : (action.models[0] ?? existingModel);
+
+        const nextState: ChatState = {
+          ...state,
+          providerConfigs: {
+            ...state.providerConfigs,
+            [action.provider]: {
+              ...state.providerConfigs[action.provider],
+              availableModels: action.models,
+              model: nextModel
+            }
+          }
+        };
+
+        return action.provider === state.providerMode
+          ? {
+              ...nextState,
+              availableModels: action.models,
+              model: nextModel
+            }
+          : nextState;
+      }
 
     case 'CREATE_CONVERSATION': {
       const conv: Conversation = {
@@ -238,21 +324,32 @@ function getPersistedChatSettings() {
 }
 
 const savedSettings = getPersistedChatSettings();
+const initialProviderMode: ProviderMode = savedSettings.providerMode === 'cloud' ? 'cloud' : 'local';
+const initialProviderConfigs: Record<ProviderMode, ProviderConfig> = {
+  local: {
+    model: savedSettings.providerModels?.local || savedSettings.model || DEFAULT_LOCAL_MODELS[0],
+    availableModels: DEFAULT_LOCAL_MODELS,
+    ollamaStatus: 'checking'
+  },
+  cloud: {
+    model: savedSettings.providerModels?.cloud || DEFAULT_CLOUD_MODELS[0],
+    availableModels: DEFAULT_CLOUD_MODELS,
+    ollamaStatus: 'checking'
+  }
+};
+const activeInitialProvider = initialProviderConfigs[initialProviderMode];
 
 const initialState: ChatState = {
   conversations: [],
   activeConversationId: null,
-  model: savedSettings.model || 'llama3.2:3b',
+  providerMode: initialProviderMode,
+  providerConfigs: initialProviderConfigs,
+  model: activeInitialProvider.model,
   isThinkingEnabled: savedSettings.isThinkingEnabled ?? false,
   systemPrompt: savedSettings.systemPrompt || '',
   streamingState: 'idle',
-  availableModels: [
-    'llama3.2:3b',
-    'qwen3.5:4b',
-    'qwen2.5:0.5b',
-    'deepseek-coder:6.7b'
-  ],
-  ollamaStatus: 'checking',
+  availableModels: activeInitialProvider.availableModels,
+  ollamaStatus: activeInitialProvider.ollamaStatus,
   agentMode: savedSettings.agentMode ?? false,
   agentStepMode: savedSettings.agentStepMode || 'auto',
   maxIterations: savedSettings.maxIterations ?? 10
@@ -266,8 +363,8 @@ interface ChatContextValue {
   activeConversation: Conversation | null;
   sendMessage: (content: string) => Promise<void>;
   createNewConversation: () => void;
-  checkOllamaStatus: () => Promise<void>;
-  fetchModels: () => Promise<void>;
+  checkOllamaStatus: (provider?: ProviderMode) => Promise<void>;
+  fetchModels: (provider?: ProviderMode) => Promise<void>;
   loadConversations: () => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   /** Agent step mode: send approve/reject on the active chat WebSocket */
@@ -293,14 +390,27 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
   // Persist settings
   useEffect(() => {
     localStorage.setItem('ai-workspace-settings', JSON.stringify({
-      model: state.model,
+      providerMode: state.providerMode,
+      providerModels: {
+        local: state.providerConfigs.local.model,
+        cloud: state.providerConfigs.cloud.model,
+      },
       isThinkingEnabled: state.isThinkingEnabled,
       systemPrompt: state.systemPrompt,
       agentMode: state.agentMode,
       agentStepMode: state.agentStepMode,
       maxIterations: state.maxIterations,
     }));
-  }, [state.model, state.isThinkingEnabled, state.systemPrompt, state.agentMode, state.agentStepMode, state.maxIterations]);
+  }, [
+    state.providerMode,
+    state.providerConfigs.local.model,
+    state.providerConfigs.cloud.model,
+    state.isThinkingEnabled,
+    state.systemPrompt,
+    state.agentMode,
+    state.agentStepMode,
+    state.maxIterations
+  ]);
 
   const activeConversation = state.conversations.find(
     c => c.id === state.activeConversationId
@@ -316,19 +426,24 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, [state.model]);
 
-  const checkOllamaStatus = useCallback(async () => {
-    dispatch({ type: 'SET_OLLAMA_STATUS', status: 'checking' });
+  const checkOllamaStatus = useCallback(async (provider: ProviderMode = state.providerMode) => {
+    dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'checking' });
     try {
-      const res = await fetch('/api/models');
+      const res = await fetch(`/api/models/health?provider=${provider}`);
       if (res.ok) {
-        dispatch({ type: 'SET_OLLAMA_STATUS', status: 'connected' });
+        const data = await res.json();
+        dispatch({
+          type: 'SET_OLLAMA_STATUS',
+          provider,
+          status: data.ollama === 'connected' ? 'connected' : 'disconnected'
+        });
       } else {
-        dispatch({ type: 'SET_OLLAMA_STATUS', status: 'disconnected' });
+        dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'disconnected' });
       }
     } catch {
-      dispatch({ type: 'SET_OLLAMA_STATUS', status: 'disconnected' });
+      dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'disconnected' });
     }
-  }, []);
+  }, [state.providerMode]);
 
   const getAuthHeaders = (): Record<string, string> => {
     try {
@@ -383,20 +498,26 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const fetchModels = useCallback(async () => {
+  const fetchModels = useCallback(async (provider: ProviderMode = state.providerMode) => {
     try {
-      const res = await fetch('/api/models');
+      const res = await fetch(`/api/models?provider=${provider}`);
       if (res.ok) {
         const data = await res.json();
         if (data.models && Array.isArray(data.models)) {
-          dispatch({ type: 'SET_MODELS', models: data.models.map((m: any) => m.name || m) });
-          dispatch({ type: 'SET_OLLAMA_STATUS', status: 'connected' });
+          dispatch({
+            type: 'SET_MODELS',
+            provider,
+            models: data.models.map((m: any) => m.name || m)
+          });
+          dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'connected' });
         }
+      } else {
+        dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'disconnected' });
       }
     } catch {
-      // Use defaults
+      dispatch({ type: 'SET_OLLAMA_STATUS', provider, status: 'disconnected' });
     }
-  }, []);
+  }, [state.providerMode]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || state.streamingState === 'streaming') return;
@@ -458,6 +579,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       ws.onopen = () => {
         approvalWsRef.current = ws;
         ws.send(JSON.stringify({
+          provider: state.providerMode,
           model: state.model,
           messages: contextMessages,
           thinking: state.isThinkingEnabled,

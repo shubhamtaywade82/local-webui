@@ -26,14 +26,6 @@ interface AgentStep {
 
 // Removed sample data
 
-const SAMPLE_KB_FILES = [
-  { path: 'coding/javascript-patterns.md', size: '4.2 KB' },
-  { path: 'coding/typescript-best-practices.md', size: '3.8 KB' },
-  { path: 'trading/options-strategies.md', size: '6.1 KB' },
-  { path: 'trading/risk-management.md', size: '2.9 KB' },
-  { path: 'trivia.md', size: '0.4 KB' },
-];
-
 interface KbStats {
   totalDirectories: number;
   totalDocuments: number;

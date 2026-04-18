@@ -150,6 +150,7 @@ export default function ChatPanel() {
         onSend={sendMessage}
         isDisabled={isStreaming}
         model={state.model}
+        providerMode={state.providerMode}
       />
     </div>
   );

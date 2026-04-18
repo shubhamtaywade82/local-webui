@@ -1,4 +1,5 @@
 export type OllamaRequestHeaders = Record<string, string>;
+export type OllamaProvider = "local" | "cloud";
 
 const LOCAL_OLLAMA_BASE = "http://localhost:11434";
 const CLOUD_OLLAMA_BASE = "https://ollama.com";
@@ -8,30 +9,42 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-export function getOllamaBase(): string {
-  return trimTrailingSlash(
-    process.env.OLLAMA_URL ||
-      (process.env.OLLAMA_API_KEY ? CLOUD_OLLAMA_BASE : LOCAL_OLLAMA_BASE)
-  );
+function normalizeCloudHost(value: string): string {
+  return trimTrailingSlash(value).replace(/\/api$/, "");
 }
 
-export function getOllamaHeaders(extraHeaders: OllamaRequestHeaders = {}): OllamaRequestHeaders {
+export function resolveOllamaProvider(value: unknown): OllamaProvider {
+  return value === "cloud" ? "cloud" : "local";
+}
+
+export function getOllamaBase(provider: OllamaProvider = "local"): string {
+  if (provider === "cloud") {
+    return normalizeCloudHost(process.env.OLLAMA_URL || CLOUD_OLLAMA_BASE);
+  }
+
+  return LOCAL_OLLAMA_BASE;
+}
+
+export function getOllamaHeaders(
+  provider: OllamaProvider = "local",
+  extraHeaders: OllamaRequestHeaders = {}
+): OllamaRequestHeaders {
   const headers: OllamaRequestHeaders = { ...extraHeaders };
   const apiKey = process.env.OLLAMA_API_KEY?.trim();
 
-  if (apiKey) {
+  if (provider === "cloud" && apiKey) {
     headers.Authorization = `Bearer ${apiKey}`;
   }
 
   return headers;
 }
 
-export function getDefaultChatModel(): string {
-  return process.env.OLLAMA_MODEL || (process.env.OLLAMA_API_KEY ? "gpt-oss:20b" : "qwen2.5:0.5b");
+export function getFallbackChatModel(provider: OllamaProvider = "local"): string {
+  return provider === "cloud" ? "gpt-oss:20b" : "qwen2.5:0.5b";
 }
 
-export function getDefaultSummaryModel(): string {
-  return process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || getDefaultChatModel();
+export function createOllamaClient(provider: OllamaProvider = "local"): OllamaClient {
+  return new OllamaClient(getOllamaBase(provider), getOllamaHeaders(provider));
 }
 
 export class OllamaClient {

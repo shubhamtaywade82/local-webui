@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   FileCode2, X, Plus, ChevronRight, Folder, File, Code2, 
-  Save, Loader2, RefreshCcw, Search
+  Save, Loader2, RefreshCcw
 } from 'lucide-react';
 import { useEditorStore, FileNode } from '../../stores/useEditorStore';
 import CodeMirror from '@uiw/react-codemirror';
@@ -86,9 +86,9 @@ function FileTreeItem({ node, depth = 0 }: { node: FileNode; depth?: number }) {
 export default function CodeEditorPanel() {
   const { 
     files, activeFile, openFile, closeFile, setActiveFile, updateContent,
-    tree, loadingTree, saveFile, refreshTree, openFromDisk
+    tree, loadingTree, saveFile, refreshTree
   } = useEditorStore();
-  const [showExplorer, setShowExplorer] = useState(true);
+  const showExplorer = true;
 
   // Keyboard Shortcuts: Ctrl+S / Cmd+S
   useEffect(() => {

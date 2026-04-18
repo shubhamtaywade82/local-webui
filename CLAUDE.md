@@ -25,11 +25,8 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 ## Env
 
 - `DATABASE_URL` — Postgres (Sequelize + knowledge-engine pool). Default user/db in `apps/server/src/services/db.ts`.
-- `OLLAMA_URL` — Ollama API base URL for chat, models, and embeddings. Defaults to `https://ollama.com` when `OLLAMA_API_KEY` is set, otherwise `http://localhost:11434`.
-- `OLLAMA_API_KEY` — bearer token for direct access to `https://ollama.com/api`.
-- `OLLAMA_MODEL` — default chat model when the client does not send one.
-- `OLLAMA_SUMMARY_MODEL` — optional override for conversation summarization.
-- `OLLAMA_EMBED_MODEL` — embedding model for RAG (`embeddinggemma` is a sensible cloud default).
+- `OLLAMA_URL` — cloud Ollama API base URL. Used only when the UI provider setting is `cloud`. Defaults to `https://ollama.com`.
+- `OLLAMA_API_KEY` — bearer token for direct access to the cloud Ollama API. Used only in `cloud` mode.
 - `KNOWLEDGE_ROOT` — RAG root relative to `apps/server` cwd (default `../../knowledge`).
 - `KNOWLEDGE_INGEST_PATH` — folder name under repo root for `scripts/ingest.ts` (default `knowledge`).
 
@@ -38,11 +35,11 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 - Chat + RAG: `apps/server/src/routes/chat.ts`, KB root: `apps/server/src/config/knowledgeRoot.ts`
 - Ollama list: `apps/server/src/routes/models.ts`
 - DB models: `apps/server/src/services/db.ts`
-- UI/API calls: `apps/web/src/stores/useChatStore.tsx` (`/api/chat`, `/api/models`)
+- UI/API calls: `apps/web/src/stores/useChatStore.tsx` (`/api/chat`, `/api/models`, provider selection + model persistence)
 - Vite proxy: `apps/web/vite.config.ts`
 
 ## Gotchas
 
 - Knowledge path defaults to `../../knowledge` from `apps/server` cwd; use `KNOWLEDGE_ROOT=../../options-buying-kb` for the legacy-only tree.
-- For direct Ollama Cloud API, set `OLLAMA_API_KEY` and optionally `OLLAMA_URL=https://ollama.com`; the server will attach the bearer token automatically.
+- Local vs cloud model selection now lives in the UI settings. The backend only needs `OLLAMA_API_KEY` and optional `OLLAMA_URL` for cloud mode.
 - See **AGENTS.md** for full architecture and agent-oriented notes.

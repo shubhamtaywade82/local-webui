@@ -1,7 +1,11 @@
 import path from "path";
 import jwt from "jsonwebtoken";
 import { FastifyInstance } from "fastify";
-import { OllamaClient, getDefaultChatModel } from "@workspace/ollama-client";
+import {
+  createOllamaClient,
+  getFallbackChatModel,
+  resolveOllamaProvider,
+} from "@workspace/ollama-client";
 import {
   AgentRuntime,
   AgentConfig,
@@ -21,7 +25,6 @@ import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
 import { knowledgeEngine } from "../services/knowledgeSingleton";
 
-const ollama = new OllamaClient();
 const knowledge = knowledgeEngine;
 const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-in-prod';
 
@@ -72,9 +75,15 @@ function handleWs(connection: any, req: any) {
 
       const {
         messages, model, conversation_id, systemPrompt: customSystemPrompt,
-        thinking, agentMode, maxIterations, agentStepMode, token: payloadToken
+        thinking, agentMode, maxIterations, agentStepMode, token: payloadToken,
+        provider
       } = payload;
-      const requestedModel = typeof model === "string" && model.trim() ? model.trim() : getDefaultChatModel();
+      const requestedProvider = resolveOllamaProvider(provider);
+      const requestedModel =
+        typeof model === "string" && model.trim()
+          ? model.trim()
+          : getFallbackChatModel(requestedProvider);
+      const ollama = createOllamaClient(requestedProvider);
 
       // userId from WS upgrade headers OR from first-message token (WS can't send custom headers)
       let userId = headerUserId;
@@ -98,7 +107,7 @@ function handleWs(connection: any, req: any) {
       }
 
       // 1. Retrieve Knowledge (RAG)
-      const contextDocs = await knowledge.retrieve(lastUserMessage);
+      const contextDocs = await knowledge.retrieve(lastUserMessage, {}, requestedProvider);
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
@@ -107,7 +116,7 @@ function handleWs(connection: any, req: any) {
       let historyContext = "";
       if (history.length > 10) {
         const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
-        const summary = await summarizeConversation(historyText);
+        const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
         historyContext = `Conversation Summary:\n${summary}`;
       }
 

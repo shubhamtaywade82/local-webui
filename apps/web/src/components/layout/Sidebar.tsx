@@ -39,6 +39,7 @@ export default function Sidebar() {
   };
   const statusInfo = statusConfig[state.ollamaStatus];
   const StatusIcon = statusInfo.icon;
+  const providerLabel = state.providerMode === 'cloud' ? 'Cloud' : 'Local';
 
   return (
     <div
@@ -205,7 +206,7 @@ export default function Sidebar() {
       <div className="p-3 space-y-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         {/* Ollama Status */}
         <button
-          onClick={checkOllamaStatus}
+          onClick={() => { void checkOllamaStatus(); }}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-white/5"
         >
           <StatusIcon
@@ -214,7 +215,7 @@ export default function Sidebar() {
             className={state.ollamaStatus === 'checking' ? 'animate-spin' : ''}
           />
           <span style={{ color: 'var(--text-tertiary)' }}>
-            Ollama: <span style={{ color: statusInfo.color }}>{statusInfo.label}</span>
+            Ollama {providerLabel}: <span style={{ color: statusInfo.color }}>{statusInfo.label}</span>
           </span>
         </button>
 

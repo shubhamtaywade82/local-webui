@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Loader2 } from 'lucide-react';
+import { Send, Loader2 } from 'lucide-react';
+import { ProviderMode } from '../../stores/useChatStore';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
   isDisabled: boolean;
   model: string;
+  providerMode: ProviderMode;
 }
 
-export default function ChatInput({ onSend, isDisabled, model }: ChatInputProps) {
+export default function ChatInput({ onSend, isDisabled, model, providerMode }: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -75,7 +77,7 @@ export default function ChatInput({ onSend, isDisabled, model }: ChatInputProps)
                   border: '1px solid var(--border-subtle)'
                 }}
               >
-                {model}
+                {providerMode === 'cloud' ? 'Cloud' : 'Local'} · {model}
               </span>
             </div>
 
