@@ -17,4 +17,20 @@ async function start() {
   }
 }
 
+// Clean Shutdown Logic
+const shutdown = async (signal: string) => {
+  console.log(`\nReceived ${signal}. Shutting down...`);
+  try {
+    await app.close();
+    console.log("Server closed.");
+    process.exit(0);
+  } catch (err) {
+    console.error("Error during shutdown:", err);
+    process.exit(1);
+  }
+};
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
 start();
