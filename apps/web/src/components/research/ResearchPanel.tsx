@@ -18,7 +18,8 @@ interface AgentStep {
   duration?: number;
   input?: string;
   output?: string;
-  timestamp: number;
+  timestamp?: number;
+  pendingApproval?: boolean;
 }
 
 // ── Sample data for demonstration ──
@@ -42,7 +43,13 @@ interface KbStats {
 
 // ── Components ──
 
-function AgentTimeline({ steps }: { steps: AgentStep[] }) {
+function AgentTimeline({
+  steps,
+  onAgentApproval
+}: {
+  steps: AgentStep[];
+  onAgentApproval: (approved: boolean, stepId: string) => void;
+}) {
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
 
   const toggleStep = (id: string) => {
@@ -116,6 +123,27 @@ function AgentTimeline({ steps }: { steps: AgentStep[] }) {
                     >
                       {step.tool}
                     </span>
+                  </div>
+                )}
+
+                {step.pendingApproval && (
+                  <div className="flex gap-2 mt-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => onAgentApproval(true, step.id)}
+                      className="text-[10px] px-2 py-1 rounded-md font-medium"
+                      style={{ background: 'var(--accent)', color: '#fff' }}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAgentApproval(false, step.id)}
+                      className="text-[10px] px-2 py-1 rounded-md font-medium"
+                      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
+                    >
+                      Reject
+                    </button>
                   </div>
                 )}
 
@@ -257,7 +285,7 @@ type TabId = 'sources' | 'agent' | 'knowledge';
 
 export default function ResearchPanel() {
   const [activeTab, setActiveTab] = useState<TabId>('agent');
-  const { activeConversation } = useChatStore();
+  const { activeConversation, submitAgentApproval } = useChatStore();
 
   const sources = Array.from(new Set((activeConversation?.messages ?? []).flatMap(m => m.sources ?? [])));
 
@@ -322,7 +350,10 @@ export default function ResearchPanel() {
           )
         )}
         {activeTab === 'agent' && (
-          <AgentTimeline steps={activeConversation?.agentSteps || []} />
+          <AgentTimeline
+            steps={(activeConversation?.agentSteps || []) as AgentStep[]}
+            onAgentApproval={submitAgentApproval}
+          />
         )}
         {activeTab === 'knowledge' && (
           <KnowledgeBaseView />

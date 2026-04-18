@@ -303,12 +303,14 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
       }
 
       if (fullAssistantResponse) {
+        // Row may be missing if deleted mid-stream or ensure failed earlier; re-assert before FK insert.
+        await db.ensureConversation(currentConversationId, conversationTitle, model, userId);
         const saved = await db.saveMessage(currentConversationId, 'assistant', fullAssistantResponse);
         savedMessageId = (saved as any).id ?? null;
       }
 
     } catch (err) {
-      console.error("[ChatRoute] Failed to parse message:", err);
+      console.error("[ChatRoute] WS message handler error:", err);
     }
   });
 

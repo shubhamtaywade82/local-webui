@@ -266,6 +266,8 @@ interface ChatContextValue {
   fetchModels: () => Promise<void>;
   loadConversations: () => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
+  /** Agent step mode: send approve/reject on the active chat WebSocket */
+  submitAgentApproval: (approved: boolean, stepId: string) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -281,6 +283,8 @@ export function useChatStore(): ChatContextValue {
 export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const abortRef = useRef<AbortController | null>(null);
+  /** Same socket used for chat stream — server waits on it for step approvals */
+  const approvalWsRef = useRef<WebSocket | null>(null);
 
   // Persist settings
   useEffect(() => {
@@ -363,6 +367,18 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const submitAgentApproval = useCallback((approved: boolean, stepId: string) => {
+    const ws = approvalWsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(
+      JSON.stringify(
+        approved
+          ? { type: 'agent_step_approve', stepId }
+          : { type: 'agent_step_reject', stepId }
+      )
+    );
+  }, []);
+
   const fetchModels = useCallback(async () => {
     try {
       const res = await fetch('/api/models');
@@ -424,6 +440,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
 
     // Abort previous stream
     abortRef.current?.abort();
+    approvalWsRef.current = null;
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -435,6 +452,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_STREAMING_STATE', state: 'streaming' });
 
       ws.onopen = () => {
+        approvalWsRef.current = ws;
         ws.send(JSON.stringify({
           model: state.model,
           messages: contextMessages,
@@ -501,10 +519,24 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
               step: data.step
             });
           } else if (data.type === 'agent_step_pending') {
+            const p = (data.step ?? {}) as {
+              stepId?: string;
+              toolName?: string;
+              toolInput?: Record<string, unknown>;
+            };
+            const stepId = p.stepId ?? `pending-${Date.now()}`;
             dispatch({
               type: 'ADD_AGENT_STEP',
               conversationId: convId,
-              step: { ...data, id: data.stepId, label: `Approve: ${data.toolName}?`, status: 'running', pendingApproval: true }
+              step: {
+                id: stepId,
+                label: `Approve: ${p.toolName ?? 'tool'}?`,
+                tool: p.toolName,
+                status: 'running',
+                pendingApproval: true,
+                input: JSON.stringify(p.toolInput ?? {}),
+                timestamp: Date.now()
+              }
             });
           } else if (data.type === 'sql_result') {
             window.dispatchEvent(new CustomEvent('sql:result', { detail: data }));
@@ -518,6 +550,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       };
 
       ws.onerror = () => {
+        approvalWsRef.current = null;
         dispatch({
           type: 'APPEND_TOKEN',
           conversationId: convId,
@@ -528,6 +561,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       };
 
       ws.onclose = () => {
+        approvalWsRef.current = null;
         dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });
       };
 
@@ -556,7 +590,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     checkOllamaStatus,
     fetchModels,
     loadConversations,
-    deleteConversation
+    deleteConversation,
+    submitAgentApproval
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

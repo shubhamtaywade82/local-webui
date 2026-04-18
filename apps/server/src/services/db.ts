@@ -175,11 +175,17 @@ export const db = {
     return id;
   },
 
+  /** Ensure a row exists for this id (client-generated UUIDs). Idempotent; races → unique key → ignored. */
   async ensureConversation(id: string, title: string, model: string, userId?: string) {
-    await Conversation.findOrCreate({
-      where: { id },
-      defaults: { title, model, userId: userId ?? null },
-    });
+    const existing = await Conversation.findByPk(id);
+    if (existing) return;
+    try {
+      await Conversation.create({ id, title, model, userId: userId ?? null });
+    } catch (e: unknown) {
+      const name = e && typeof e === 'object' && 'name' in e ? String((e as { name: string }).name) : '';
+      if (name === 'SequelizeUniqueConstraintError') return;
+      throw e;
+    }
   },
 
   async listConversations(userId?: string) {
