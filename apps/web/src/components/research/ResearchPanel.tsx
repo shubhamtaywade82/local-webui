@@ -23,34 +23,7 @@ interface AgentStep {
 
 // ── Sample data for demonstration ──
 
-const SAMPLE_AGENT_STEPS: AgentStep[] = [
-  {
-    id: '1',
-    label: 'Planning execution strategy',
-    status: 'success',
-    duration: 230,
-    timestamp: Date.now() - 15000,
-    output: 'Decided to search knowledge base first, then generate code.'
-  },
-  {
-    id: '2',
-    label: 'Searching knowledge base',
-    tool: 'vector_search',
-    status: 'success',
-    duration: 450,
-    timestamp: Date.now() - 14000,
-    input: 'query: "Sequelize model definitions"',
-    output: 'Found 3 relevant documents with scores > 0.7'
-  },
-  {
-    id: '3',
-    label: 'Synthesizing response',
-    status: 'success',
-    duration: 1200,
-    timestamp: Date.now() - 12000,
-    output: 'Generated comprehensive code analysis.'
-  }
-];
+// Removed sample data
 
 const SAMPLE_KB_FILES = [
   { path: 'coding/javascript-patterns.md', size: '4.2 KB' },
@@ -349,7 +322,7 @@ export default function ResearchPanel() {
           )
         )}
         {activeTab === 'agent' && (
-          <AgentTimeline steps={SAMPLE_AGENT_STEPS} />
+          <AgentTimeline steps={activeConversation?.agentSteps || []} />
         )}
         {activeTab === 'knowledge' && (
           <KnowledgeBaseView />

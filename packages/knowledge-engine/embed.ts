@@ -1,6 +1,7 @@
 export async function generateEmbedding(text: string): Promise<number[] | null> {
+  const OLLAMA_BASE = process.env.OLLAMA_URL || "http://localhost:11434";
   try {
-    const response = await fetch("http://localhost:12434/api/embeddings", {
+    const response = await fetch(`${OLLAMA_BASE}/api/embeddings`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

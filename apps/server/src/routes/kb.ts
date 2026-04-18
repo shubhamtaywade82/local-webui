@@ -24,8 +24,8 @@ export default async function routes(app: FastifyInstance) {
     const buffer = await data.toBuffer();
     await fs.writeFile(filePath, buffer);
 
-    // Trigger KnowledgeEngine refresh without waiting (it runs in background)
-    knowledge.refresh().catch(console.error);
+    // Trigger persistent ingestion in background
+    knowledge.ingest().catch(console.error);
 
     return { success: true, message: "File uploaded successfully", filename: safeFilename };
   });

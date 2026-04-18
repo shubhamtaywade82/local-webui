@@ -86,7 +86,28 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
 
         let fullAssistantResponse = "";
         let buffer = "";
-        let toolParsingEnabled = false;
+        let stepsEmitted = new Set<string>();
+        const startTime = Date.now();
+
+        const emitStep = (id: string, label: string, status: 'running' | 'success', tool?: string) => {
+          if (status === 'success' && stepsEmitted.has(id)) return; // Don't repeat successful steps
+          connection.socket.send(JSON.stringify({
+            type: 'agent_step',
+            step: {
+              id,
+              label,
+              tool,
+              status,
+              timestamp: Date.now(),
+              duration: Date.now() - startTime
+            },
+            conversation_id: currentConversationId
+          }));
+          if (status === 'success') stepsEmitted.add(id);
+        };
+
+        // Initial step: Planning
+        emitStep('planning', 'Planning execution strategy', 'success');
         
         try {
           await ollama.stream(model || "qwen2.5:0.5b", finalMessages, (token) => {
@@ -100,30 +121,49 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
               conversation_id: currentConversationId 
             }));
 
-            // Basic parsing for `<tool>edit_file</tool>`
-            if (buffer.includes("<tool>edit_file</tool>") && buffer.includes("</content>")) {
-              const toolStart = buffer.indexOf("<tool>edit_file</tool>");
-              const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
-              const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
-              
-              if (pathMatch && contentMatch) {
-                const filePath = pathMatch[1].trim();
-                const fileContent = contentMatch[1].trim();
-                
-                console.log(`[ChatRoute] Emitting edit_file tool event for ${filePath}`);
-                connection.socket.send(JSON.stringify({
-                  type: 'tool_call',
-                  tool: 'edit_file',
-                  path: filePath,
-                  content: fileContent,
-                  conversation_id: currentConversationId
-                }));
+            // Detect Thinking
+            if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
+              emitStep('thinking', 'Reasoning step-by-step', 'running');
+            }
+            if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
+              emitStep('thinking', 'Reasoning complete', 'success');
+              stepsEmitted.add('thinking-done');
+            }
 
-                // Clear buffer after extracting tool call to prevent multiple triggers
-                buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
+            // Detect Tool Usage
+            if (buffer.includes("<tool>edit_file</tool>")) {
+              if (!stepsEmitted.has('tool-edit-file')) {
+                emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
+              }
+              
+              if (buffer.includes("</content>")) {
+                const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
+                const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
+                
+                if (pathMatch && contentMatch) {
+                  const filePath = pathMatch[1].trim();
+                  const fileContent = contentMatch[1].trim();
+                  
+                  emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
+                  
+                  console.log(`[ChatRoute] Emitting edit_file tool event for ${filePath}`);
+                  connection.socket.send(JSON.stringify({
+                    type: 'tool_call',
+                    tool: 'edit_file',
+                    path: filePath,
+                    content: fileContent,
+                    conversation_id: currentConversationId
+                  }));
+
+                  // Clear buffer after extracting tool call to prevent multiple triggers
+                  buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
+                }
               }
             }
           });
+
+          // Final step
+          emitStep('synthesis', 'Finalizing response', 'success');
 
           connection.socket.send(JSON.stringify({ 
             type: 'done', 
@@ -133,6 +173,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
           console.error(`[ChatRoute] WS Stream error: ${errorMsg}`);
+          emitStep('error', `Error: ${errorMsg}`, 'success');
           connection.socket.send(JSON.stringify({ 
             type: 'error', 
             error: errorMsg, 

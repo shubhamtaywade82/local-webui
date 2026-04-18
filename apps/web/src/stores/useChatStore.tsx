@@ -19,6 +19,7 @@ export interface Conversation {
   model: string;
   createdAt: number;
   messages: Message[];
+  agentSteps: any[]; // Use any for simplicity or define AgentStep properly
 }
 
 export type StreamingState = 'idle' | 'thinking' | 'streaming' | 'done' | 'error';
@@ -51,6 +52,8 @@ type ChatAction =
   | { type: 'APPEND_TOKEN'; conversationId: string; messageId: string; token: string }
   | { type: 'SET_MESSAGE_SOURCES'; conversationId: string; messageId: string; sources: string[] }
   | { type: 'FINISH_STREAMING'; conversationId: string; messageId: string }
+  | { type: 'ADD_AGENT_STEP'; conversationId: string; step: any }
+  | { type: 'CLEAR_AGENT_STEPS'; conversationId: string }
   | { type: 'SET_CONVERSATIONS'; conversations: Conversation[] };
 
 // ── Reducer ──
@@ -81,7 +84,8 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         title: action.title,
         model: action.model,
         createdAt: Date.now(),
-        messages: []
+        messages: [],
+        agentSteps: []
       };
       return {
         ...state,
@@ -172,6 +176,27 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
                 )
               }
             : c
+        )
+      };
+
+    case 'ADD_AGENT_STEP':
+      return {
+        ...state,
+        conversations: state.conversations.map(c =>
+          c.id === action.conversationId
+            ? { 
+                ...c, 
+                agentSteps: [...(c.agentSteps || []).filter(s => s.id !== action.step.id), action.step] 
+              }
+            : c
+        )
+      };
+
+    case 'CLEAR_AGENT_STEPS':
+      return {
+        ...state,
+        conversations: state.conversations.map(c =>
+          c.id === action.conversationId ? { ...c, agentSteps: [] } : c
         )
       };
 
@@ -323,6 +348,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       isStreaming: true
     };
     dispatch({ type: 'ADD_MESSAGE', conversationId: convId, message: assistantMsg });
+    dispatch({ type: 'CLEAR_AGENT_STEPS', conversationId: convId });
     dispatch({ type: 'SET_STREAMING_STATE', state: 'thinking' });
 
     // Get current messages for context
@@ -398,6 +424,12 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
               token: `\n\n**Stream Error:** ${data.error}`
             });
             dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
+          } else if (data.type === 'agent_step') {
+            dispatch({
+              type: 'ADD_AGENT_STEP',
+              conversationId: convId,
+              step: data.step
+            });
           } else if (data.type === 'done') {
             ws.close();
             dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });

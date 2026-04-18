@@ -7,6 +7,7 @@ import { VectorStore } from "./vectorStore";
 import { generateEmbedding } from "./embed";
 import { Pool } from "pg";
 import { retrievePersistent } from "./retrieve";
+import { ingestKnowledge } from "./ingestor";
 
 export class KnowledgeEngine {
   private directories: DirectoryNode[] = [];
@@ -52,6 +53,19 @@ export class KnowledgeEngine {
       console.log(`[KnowledgeEngine] Refresh complete. Indexed ${this.directories.length} dirs, ${this.getStats().totalDocuments} docs.`);
     } finally {
       this.isIndexing = false;
+    }
+  }
+
+  /**
+   * Automate persistent ingestion into the database
+   */
+  async ingest() {
+    console.log(`[KnowledgeEngine] Triggering persistent ingestion for: ${this.root}`);
+    try {
+      await ingestKnowledge(this.root, this.pool);
+      await this.refresh(); // Sync in-memory state after DB ingestion
+    } catch (err) {
+      console.error("[KnowledgeEngine] Ingestion failed:", err);
     }
   }
 
