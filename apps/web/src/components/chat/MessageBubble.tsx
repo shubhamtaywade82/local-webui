@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check,
-  Loader2, CheckCircle2, XCircle
+  Loader2, CheckCircle2, XCircle, Wrench
 } from 'lucide-react';
 import { type Message } from '../../stores/useChatStore';
 import { useEditorStore } from '../../stores/useEditorStore';
@@ -13,7 +13,107 @@ export type InlineAgentStep = {
   tool?: string;
   status: 'running' | 'success' | 'error';
   pendingApproval?: boolean;
+  args?: Record<string, unknown>;
+  result?: string;
+  thought?: string;
+  duration?: number;
 };
+
+function AgentStepRow({
+  step,
+  onAgentApproval
+}: {
+  step: InlineAgentStep;
+  onAgentApproval?: (approved: boolean, stepId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasDetail = !!(step.args && Object.keys(step.args).length > 0) || !!step.result || !!step.thought;
+
+  const statusIcon = () => {
+    if (step.status === 'success') return <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />;
+    if (step.status === 'error') return <XCircle size={12} style={{ color: 'var(--error)' }} />;
+    return <Loader2 size={12} className="animate-spin" style={{ color: 'var(--warning)' }} />;
+  };
+
+  return (
+    <li className={`rounded-lg overflow-hidden ${step.status === 'running' ? 'opacity-80' : ''}`}
+      style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-surface)' }}
+    >
+      {/* Header row */}
+      <div
+        className={`flex items-center gap-2 px-2.5 py-1.5 ${hasDetail ? 'cursor-pointer hover:bg-white/[0.03]' : ''}`}
+        onClick={() => hasDetail && setExpanded(e => !e)}
+      >
+        <span className="flex-shrink-0">{statusIcon()}</span>
+        {step.tool && (
+          <span className="flex items-center gap-1 flex-shrink-0">
+            <Wrench size={10} style={{ color: 'var(--accent)' }} />
+            <code className="text-[10px] font-mono" style={{ color: 'var(--accent)' }}>{step.tool}</code>
+          </span>
+        )}
+        <span className="text-[11px] flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
+          {step.label}
+        </span>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {step.duration != null && (
+            <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{step.duration}ms</span>
+          )}
+          {hasDetail && (
+            expanded
+              ? <ChevronDown size={11} style={{ color: 'var(--text-muted)' }} />
+              : <ChevronRight size={11} style={{ color: 'var(--text-muted)' }} />
+          )}
+        </div>
+      </div>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div className="px-2.5 pb-2 space-y-1.5" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          {step.thought && (
+            <div className="pt-1.5">
+              <div className="text-[9px] uppercase tracking-widest font-bold mb-0.5" style={{ color: 'var(--text-muted)' }}>Thought</div>
+              <p className="text-[11px] leading-snug italic" style={{ color: 'var(--text-muted)' }}>{step.thought}</p>
+            </div>
+          )}
+          {step.args && Object.keys(step.args).length > 0 && (
+            <div className="pt-1">
+              <div className="text-[9px] uppercase tracking-widest font-bold mb-0.5" style={{ color: 'var(--text-muted)' }}>Input</div>
+              <pre className="text-[10px] rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                {JSON.stringify(step.args, null, 2)}
+              </pre>
+            </div>
+          )}
+          {step.result && (
+            <div className="pt-1">
+              <div className="text-[9px] uppercase tracking-widest font-bold mb-0.5" style={{ color: 'var(--text-muted)' }}>Result</div>
+              <pre className="text-[10px] rounded p-1.5 overflow-x-auto whitespace-pre-wrap break-all"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                {step.result}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Approval buttons */}
+      {step.pendingApproval && onAgentApproval && (
+        <div className="flex gap-1.5 px-2.5 pb-2">
+          <button type="button" onClick={() => onAgentApproval(true, step.id)}
+            className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+            style={{ background: 'var(--accent)', color: '#fff' }}>
+            Approve
+          </button>
+          <button type="button" onClick={() => onAgentApproval(false, step.id)}
+            className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}>
+            Reject
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
 
 function InlineAgentActivity({
   steps,
@@ -23,47 +123,10 @@ function InlineAgentActivity({
   onAgentApproval?: (approved: boolean, stepId: string) => void;
 }) {
   if (steps.length === 0) return null;
-
-  const statusIcon = (status: InlineAgentStep['status'], animate: boolean) => {
-    if (status === 'success') return <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />;
-    if (status === 'error') return <XCircle size={12} style={{ color: 'var(--error)' }} />;
-    return <Loader2 size={12} className={animate ? 'animate-spin' : ''} style={{ color: 'var(--warning)' }} />;
-  };
-
   return (
-    <ul className="mb-3 space-y-1">
-      {steps.map((step) => (
-        <li
-          key={step.id}
-          className={`flex items-start gap-2 text-left py-0.5 px-1 rounded-md ${step.status === 'running' ? 'animate-pulse' : ''}`}
-        >
-          <span className="flex-shrink-0 mt-0.5">{statusIcon(step.status, step.status === 'running')}</span>
-          <div className="min-w-0 flex-1">
-            <div className="text-[11px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
-              {step.label}
-            </div>
-            {step.pendingApproval && onAgentApproval && (
-              <div className="flex gap-1.5 mt-1.5">
-                <button
-                  type="button"
-                  onClick={() => onAgentApproval(true, step.id)}
-                  className="text-[9px] px-1.5 py-0.5 rounded font-medium"
-                  style={{ background: 'var(--accent)', color: '#fff' }}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onAgentApproval(false, step.id)}
-                  className="text-[9px] px-1.5 py-0.5 rounded font-medium"
-                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
-                >
-                  Reject
-                </button>
-              </div>
-            )}
-          </div>
-        </li>
+    <ul className="mb-3 space-y-1.5">
+      {steps.map(step => (
+        <AgentStepRow key={step.id} step={step} onAgentApproval={onAgentApproval} />
       ))}
     </ul>
   );

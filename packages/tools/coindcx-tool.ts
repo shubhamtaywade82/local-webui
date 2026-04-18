@@ -14,25 +14,41 @@ async function apiFetch(base: string, path: string, params?: Record<string, stri
   return res.json();
 }
 
-/** Spot ticker — returns all markets, filter by symbol (e.g. BTCINR, ETHINR, BTCUSDT) */
+/** Spot ticker — returns all markets from exchange, filter by symbol or base asset */
 function formatTicker(data: unknown[], symbol?: string): string {
   const markets = data as any[];
-  const filtered = symbol
-    ? markets.filter(m =>
-        m.market?.toUpperCase() === symbol.toUpperCase() ||
-        m.market?.toUpperCase().includes(symbol.toUpperCase())
-      )
-    : markets.slice(0, 20);
+
+  if (!symbol) {
+    // No filter: show top 20 by volume
+    const top = [...markets]
+      .sort((a, b) => parseFloat(b.volume ?? 0) - parseFloat(a.volume ?? 0))
+      .slice(0, 20);
+    const rows = top.map((m: any) =>
+      `${m.market}: last=${m.last_price} bid=${m.bid} ask=${m.ask} vol=${m.volume} 24h=${m.change_24_hour ?? 'n/a'}%`
+    );
+    return `Top 20 by volume (of ${markets.length} total):\n${rows.join('\n')}`;
+  }
+
+  const q = symbol.toUpperCase();
+  const filtered = markets.filter(m => {
+    const name: string = (m.market ?? '').toUpperCase();
+    // exact match, starts-with, or contains
+    return name === q || name.startsWith(q) || name.includes(q);
+  });
 
   if (filtered.length === 0) {
-    const sample = markets.slice(0, 10).map(m => m.market).join(', ');
-    return `No match for "${symbol}". Sample markets: ${sample}\nTip: Try BTCUSDT, ETHINR, SNTBTC etc.`;
+    // Suggest similar markets
+    const similar = markets
+      .filter(m => (m.market ?? '').toUpperCase().includes(q.replace(/INR|USDT|BTC$/, '')))
+      .slice(0, 8)
+      .map(m => m.market);
+    return `No match for "${symbol}" among ${markets.length} markets.\nSimilar: ${similar.join(', ') || 'none found'}\nTip: use markets action to list all available symbols.`;
   }
 
   const rows = filtered.map((m: any) =>
     `${m.market}: last=${m.last_price} bid=${m.bid} ask=${m.ask} vol=${m.volume} 24h=${m.change_24_hour ?? 'n/a'}%`
   );
-  return `Spot ticker (${filtered.length} match):\n${rows.join('\n')}`;
+  return `Spot ticker (${filtered.length} match for "${symbol}" of ${markets.length} total):\n${rows.join('\n')}`;
 }
 
 /** Futures current prices — symbol format: B-BTC_USDT */
@@ -80,7 +96,7 @@ function formatCandles(data: unknown[], pair: string, interval: string): string 
 export class CoinDCXTool extends BaseTool {
   readonly name = 'coindcx';
   readonly description =
-    'Fetch live crypto market data from CoinDCX. Spot pairs: BTCINR, ETHINR, BTCUSDT etc. Futures pairs: B-BTC_USDT, B-ETH_USDT etc.';
+    'Fetch live crypto market data from CoinDCX. If unsure of a symbol, call action=markets with symbol=BTC first to discover valid pairs, then call spot_ticker with the exact pair. Spot pairs: BTCINR, BTCUSDT. Futures: B-BTC_USDT.';
   readonly schema: ToolSchema = {
     name: 'coindcx',
     description: 'Fetch live crypto market data from CoinDCX exchange (spot + futures)',
@@ -134,7 +150,8 @@ export class CoinDCXTool extends BaseTool {
           const filtered = symbol
             ? data.filter(m => m.toUpperCase().includes(symbol.toUpperCase()))
             : data;
-          return `${filtered.length} markets${symbol ? ` matching "${symbol}"` : ''}:\n${filtered.slice(0, 50).join(', ')}`;
+          const preview = filtered.slice(0, 100).join(', ');
+          return `${filtered.length} markets${symbol ? ` matching "${symbol}"` : ' (showing first 100)'}:\n${preview}`;
         }
 
         case 'market_details': {

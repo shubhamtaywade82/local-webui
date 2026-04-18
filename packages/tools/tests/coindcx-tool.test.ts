@@ -41,7 +41,7 @@ describe('CoinDCXTool', () => {
     expect(result).not.toContain('ETHINR');
   });
 
-  it('spot_ticker shows no-match hint when symbol absent', async () => {
+  it('spot_ticker shows no-match hint with similar suggestions', async () => {
     const mockData = [
       { market: 'GNOINR', last_price: '100', bid: '99', ask: '101', volume: '50' },
     ];
@@ -49,7 +49,18 @@ describe('CoinDCXTool', () => {
 
     const result = await tool.execute({ action: 'spot_ticker', symbol: 'BTCINR' });
     expect(result).toContain('No match');
-    expect(result).toContain('BTCUSDT');
+    expect(result).toContain('markets action');
+  });
+
+  it('spot_ticker with no symbol returns top by volume', async () => {
+    const mockData = Array.from({ length: 25 }, (_, i) => ({
+      market: `COIN${i}INR`, last_price: '100', bid: '99', ask: '101', volume: String(i * 10)
+    }));
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => mockData } as any);
+
+    const result = await tool.execute({ action: 'spot_ticker' });
+    expect(result).toContain('Top 20 by volume');
+    expect(result).toContain('25 total');
   });
 
   it('wraps fetch errors gracefully', async () => {

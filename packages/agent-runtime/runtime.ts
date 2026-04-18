@@ -141,7 +141,9 @@ export class AgentRuntime {
           label: humanizeToolRunning(toolCall.tool, toolCall.args),
           tool: toolCall.tool,
           status: 'running',
-          iteration
+          iteration,
+          args: toolCall.args,
+          thought: toolCall.thought || undefined,
         }
       });
 
@@ -167,7 +169,10 @@ export class AgentRuntime {
           tool: toolCall.tool,
           status: 'success',
           duration,
-          iteration
+          iteration,
+          args: toolCall.args,
+          result: toolResult.length > 600 ? toolResult.slice(0, 600) + '…' : toolResult,
+          thought: toolCall.thought || undefined,
         }
       });
 
