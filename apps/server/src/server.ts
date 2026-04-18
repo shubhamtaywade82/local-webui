@@ -13,6 +13,7 @@ import modelsRoutes from "./routes/models";
 import kbRoutes from "./routes/kb";
 import filesRoutes from "./routes/files";
 import authRoutes from "./routes/auth";
+import marketRoutes from "./routes/market";
 
 const app = Fastify({ 
   logger: true,
@@ -32,6 +33,7 @@ async function start() {
   await app.register(modelsRoutes, { prefix: "/models" });
   await app.register(kbRoutes, { prefix: "/kb" });
   await app.register(filesRoutes, { prefix: "/files" });
+  await app.register(marketRoutes, { prefix: "/market" });
 
   // Global health check
   app.get("/health", async () => ({

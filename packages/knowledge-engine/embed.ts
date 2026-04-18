@@ -52,16 +52,24 @@ async function requestEmbedding(
   return null;
 }
 
+const SAFE_CONTEXT_LIMIT = 8192; // Approx 2000-4000 tokens
+
 export async function generateEmbedding(
   text: string,
   provider: "local" | "cloud" = "local"
 ): Promise<number[] | null> {
+  let truncatedText = text;
+  if (text.length > SAFE_CONTEXT_LIMIT) {
+    console.warn(`[KnowledgeEngine] Truncating embedding input from ${text.length} to ${SAFE_CONTEXT_LIMIT} chars to avoid context error.`);
+    truncatedText = text.slice(0, SAFE_CONTEXT_LIMIT);
+  }
+
   const OLLAMA_BASE = getOllamaBase(provider);
   const embedModel = provider === "cloud" ? CLOUD_EMBED_MODEL : LOCAL_EMBED_MODEL;
   try {
     const embedded = await requestEmbedding(provider, `${OLLAMA_BASE}/api/embed`, {
       model: embedModel,
-      input: text,
+      input: truncatedText,
     });
 
     if (embedded) {
@@ -71,7 +79,7 @@ export async function generateEmbedding(
     // Backwards compatibility for older Ollama servers that still use /api/embeddings.
     return await requestEmbedding(provider, `${OLLAMA_BASE}/api/embeddings`, {
       model: embedModel,
-      prompt: text,
+      prompt: truncatedText,
     });
   } catch (error) {
     // If Ollama is down or model missing, return null to trigger keyword fallback

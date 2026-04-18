@@ -46,14 +46,33 @@ export async function ingestKnowledge(root: string, pool: Pool) {
     await pool.query(`DELETE FROM knowledge_chunks WHERE document_id = $1`, [docId]);
 
     // 3. Ingest Chunks
-    // For non-markdown, we can just treat the whole file as one chunk if small, or split by line count
-    const chunks = isMarkdown ? chunkMarkdown(doc.path, content) : [{
-      id: `${doc.path}#0`,
-      path: doc.path,
-      index: 0,
-      content: content,
-      header: doc.name
-    }];
+    let chunks;
+    if (isMarkdown) {
+      chunks = chunkMarkdown(doc.path, content);
+    } else {
+      // For non-markdown (code, logs, json), split by character limit if large
+      const MAX_NON_MD_CHUNK = 2500;
+      if (content.length > MAX_NON_MD_CHUNK) {
+        chunks = [];
+        for (let i = 0; i < content.length; i += MAX_NON_MD_CHUNK) {
+          chunks.push({
+            id: `${doc.path}#${Math.floor(i / MAX_NON_MD_CHUNK)}`,
+            path: doc.path,
+            index: Math.floor(i / MAX_NON_MD_CHUNK),
+            content: content.slice(i, i + MAX_NON_MD_CHUNK),
+            header: `${doc.name} (Part ${Math.floor(i / MAX_NON_MD_CHUNK) + 1})`
+          });
+        }
+      } else {
+        chunks = [{
+          id: `${doc.path}#0`,
+          path: doc.path,
+          index: 0,
+          content: content,
+          header: doc.name
+        }];
+      }
+    }
 
     for (const chunk of chunks) {
       const chunkEmbedding = await embed(chunk.content);

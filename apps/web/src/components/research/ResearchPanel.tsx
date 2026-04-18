@@ -283,80 +283,195 @@ function KnowledgeBaseView() {
 }
 
 function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
+  const [hoveredAction, setHoveredAction] = useState<number | null>(null);
+  const [pulse, setPulse] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchPulse = async () => {
+      try {
+        const res = await fetch('/api/market/pulse');
+        if (res.ok) {
+          const data = await res.json();
+          setPulse(data.pulse);
+        }
+      } catch (err) {
+        console.error('Pulse fetch failed:', err);
+      }
+    };
+    fetchPulse();
+    const interval = setInterval(fetchPulse, 30000); // 30s refresh
+    return () => clearInterval(interval);
+  }, []);
+
+  const marketPulse = pulse.length > 0 ? pulse : [
+    { sym: 'BTC', price: '--', change: '0%', trend: 'Neutral', color: 'var(--text-muted)' },
+    { sym: 'ETH', price: '--', change: '0%', trend: 'Neutral', color: 'var(--text-muted)' },
+    { sym: 'SOL', price: '--', change: '0%', trend: 'Neutral', color: 'var(--text-muted)' },
+  ];
+
   const actions = [
     { 
-      title: 'Intraday Trend', 
-      desc: 'Get current 15m/1h trend for ETH Perp', 
-      prompt: 'What is the current intraday trend of B-ETH_USDT?',
+      title: 'Structural Scan', 
+      desc: 'Map BoS, ChoCh & key OBs. Alerts on Telegram.', 
+      prompt: '[STRATEGY_MODE: SMC] Perform a deep SMC market structure analysis for current market.',
       icon: Activity,
-      color: 'var(--accent)'
+      color: '#7c5dfa',
+      complexity: 'High'
     },
     { 
-      title: 'SMC Analysis', 
-      desc: 'Full Market Structure & OB scan', 
-      prompt: 'Perform a full SMC analysis for BTCUSDT.',
-      icon: Layers,
-      color: '#a78bfa'
-    },
-    { 
-      title: 'Indicator Hub', 
-      desc: 'Lookup logic in indicator_hub', 
-      prompt: 'Find the Ichimoku indicator implementation in my indicator hub.',
+      title: 'Macro Context', 
+      desc: '1H/4H Order Flow & HTF bias audit.', 
+      prompt: '[STRATEGY_MODE: SMC] Analyze the HTF (1H/4H) context for B-BTC_USDT and determine the overall Order Flow bias.',
       icon: BookOpen,
-      color: '#34d399'
+      color: '#a78bfa',
+      complexity: 'Medium'
     },
     { 
-      title: 'Futures Ticker', 
-      desc: 'Get live CoinDCX futures mark price', 
-      prompt: 'Check B-ETH_USDT futures price and 24h change.',
+      title: 'Liquidity Hunter', 
+      desc: 'Detect sweeps & inducement zones.', 
+      prompt: '[STRATEGY_MODE: LIQUIDITY] Identify recent liquidity sweeps of Daily Highs/Lows and potential inducement areas on ETH.',
       icon: Database,
-      color: '#fbbf24'
+      color: '#fbbf24',
+      complexity: 'High'
+    },
+    { 
+      title: 'Premium/Discount', 
+      desc: 'Range audit & Fib-based positioning.', 
+      prompt: '[STRATEGY_MODE: SMC] Apply a range audit to the current structure and identify if we are in a Discount or Premium zone for entries.',
+      icon: Layers,
+      color: '#34d399',
+      complexity: 'Medium'
+    },
+    { 
+      title: 'Intraday Trend', 
+      desc: 'Trend & sentiment audit. Signals to TG.', 
+      prompt: '[STRATEGY_MODE: TREND] What is the current intraday trend and volume profile of B-ETH_USDT?',
+      icon: Activity,
+      color: '#ec4899',
+      complexity: 'Medium'
+    },
+    { 
+      title: 'Test Telegram', 
+      desc: 'Verify bot configuration & credentials.', 
+      prompt: 'Send a test message to my Telegram channel: "System Check: SMC Alpha Terminal is online."',
+      icon: CheckCircle2,
+      color: '#60a5fa',
+      complexity: 'Low'
     }
   ];
 
   return (
-    <div className="p-3 space-y-3">
-      <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>
-        Quick Trading Actions
-      </div>
-      <div className="grid grid-cols-1 gap-2">
-        {actions.map((action, i) => {
-          const Icon = action.icon;
-          return (
-            <button
-              key={i}
-              onClick={() => onAction(action.prompt)}
-              className="flex items-start gap-3 p-3 rounded-xl border text-left transition-all hover:scale-[1.01] hover:border-[var(--accent)] active:scale-[0.99]"
-              style={{ 
-                background: 'var(--bg-tertiary)', 
-                borderColor: 'var(--border-subtle)',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-              }}
-            >
-              <div 
-                className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: `${action.color}15` }}
-              >
-                <Icon size={20} style={{ color: action.color }} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{action.title}</div>
-                <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{action.desc}</div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div 
-        className="mt-4 p-3 rounded-lg border border-dashed"
-        style={{ borderColor: 'var(--border-subtle)', background: 'rgba(255,255,255,0.01)' }}
-      >
-        <div className="flex items-center gap-2 mb-1.5">
-          <Brain size={14} style={{ color: 'var(--accent)' }} />
-          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>Agent Status</span>
+    <div className="p-4 space-y-6 animate-fade-in no-scrollbar">
+      {/* ── Market Pulse Header ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-[var(--success)] shadow-[0_0_8px_var(--success)] animate-pulse" />
+            <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--text-tertiary)]">Market Pulse</h3>
+          </div>
+          <span className="text-[9px] text-[var(--text-muted)] font-mono">LIVE FEED</span>
         </div>
-        <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          The agent is now using tag-aware parsing (v2.1). Technical reasoning in &lt;think&gt; tags is filtered before execution.
+        
+        <div className="grid grid-cols-3 gap-2">
+          {marketPulse.map((item, i) => (
+            <div 
+              key={i} 
+              className="glass-card p-2.5 border border-[var(--border-subtle)] hover:border-[var(--border-accent)] transition-all cursor-default"
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className="text-xs font-bold text-[var(--text-primary)]">{item.sym}</span>
+                <span className="text-[9px] font-mono" style={{ color: item.color }}>{item.change}</span>
+              </div>
+              <div className="text-[10px] text-[var(--text-secondary)] font-medium mb-1">${item.price}</div>
+              <div className="h-0.5 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                <div 
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{ 
+                    width: item.trend === 'Neutral' ? '50%' : item.trend.includes('Strong') ? '90%' : '75%',
+                    backgroundColor: item.color 
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Strategic Commands ── */}
+      <div className="space-y-3">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-[var(--text-tertiary)] ml-1">Alpha Directives</h3>
+        <div className="grid grid-cols-1 gap-2.5">
+          {actions.map((action, i) => {
+            const Icon = action.icon;
+            const isHovered = hoveredAction === i;
+            
+            return (
+              <button
+                key={i}
+                onMouseEnter={() => setHoveredAction(i)}
+                onMouseLeave={() => setHoveredAction(null)}
+                onClick={() => onAction(action.prompt)}
+                className="relative group flex items-start gap-4 p-4 rounded-2xl border text-left transition-all duration-300 hover:translate-y-[-2px]"
+                style={{ 
+                  background: isHovered ? 'var(--bg-elevated)' : 'var(--bg-tertiary)', 
+                  borderColor: isHovered ? 'var(--accent)' : 'var(--border-subtle)',
+                  boxShadow: isHovered ? 'var(--shadow-glow)' : 'var(--shadow-md)'
+                }}
+              >
+                <div 
+                  className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform duration-500 group-hover:scale-110"
+                  style={{ background: `${action.color}15`, border: `1px solid ${action.color}30` }}
+                >
+                  <Icon size={22} style={{ color: action.color }} />
+                </div>
+                
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-sm font-bold tracking-tight text-[var(--text-primary)]">{action.title}</span>
+                    <span 
+                      className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full border"
+                      style={{ 
+                        borderColor: `${action.color}40`, 
+                        color: action.color,
+                        background: `${action.color}08`
+                      }}
+                    >
+                      {action.complexity}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] transition-colors">
+                    {action.desc}
+                  </p>
+                </div>
+
+                <div className="absolute right-4 bottom-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <ChevronRight size={14} className="text-[var(--accent)]" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Intelligence Footer ── */}
+      <div 
+        className="glass-card p-4 border border-[var(--border-subtle)] relative overflow-hidden group"
+        style={{ borderColor: 'var(--border-subtle)' }}
+      >
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[var(--accent)] to-transparent opacity-20 group-hover:opacity-100 transition-opacity" />
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Brain size={16} className="text-[var(--accent)]" />
+            <span className="text-[10px] font-black uppercase tracking-[0.1em] text-[var(--text-secondary)]">Agent Intelligence</span>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--success)]/10 border border-[var(--success)]/20">
+            <div className="w-1 h-1 rounded-full bg-[var(--success)] animate-pulse" />
+            <span className="text-[8px] font-bold text-[var(--success)] uppercase">Telegram Active</span>
+          </div>
+        </div>
+        <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">
+          The agent is now optimized for <span className="text-[var(--accent)] font-bold">Secure Alerts</span>. 
+          Identified Futures setups are dispatched to Telegram with full SMC parameters (Entry/SL/TP).
         </p>
       </div>
     </div>

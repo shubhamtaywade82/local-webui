@@ -24,6 +24,7 @@ import {
   CoinDCXTool,
   CoinDCXFuturesTool,
   SmcAnalysisTool,
+  TelegramAlertTool,
   fetchPublicOhlcv,
 } from "@workspace/tools";
 import { db } from "../services/db";
@@ -234,6 +235,7 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new CoinDCXTool());
   registry.register(new CoinDCXFuturesTool());
   registry.register(new SmcAnalysisTool());
+  registry.register(new TelegramAlertTool());
   return registry;
 }
 
@@ -353,6 +355,22 @@ To use it, strictly follow this format in your response:
         systemPromptText += `\n\nTHINKING MODE ENABLED:
 You MUST reason step-by-step before providing your final answer.
 Wrap your internal reasoning process entirely within <think>...</think> tags.`;
+      }
+
+      // ── Strategic Mode Overrides ──
+      if (lastUserMessage.includes("[STRATEGY_MODE: SMC]")) {
+        systemPromptText += `\n\nSTRATEGY DIRECTIVE: SMC ANALYSIS MODE
+- Priorities: Market Structure (BoS/ChoCh), Order Blocks, and Fair Value Gaps.
+- Mandatory: Use 'smc_analysis' tool first. 
+- Determinism: Follow the "Lookup-on-Error" protocol strictly if symbols mismatch.
+- Alerts: If a high-confidence setup is found, you MUST use the 'telegram_alert' tool to notify the user.`;
+      } else if (lastUserMessage.includes("[STRATEGY_MODE: TREND]")) {
+        systemPromptText += `\n\nSTRATEGY DIRECTIVE: TREND/SENTIMENT MODE
+- Priorities: Multi-timeframe trend analysis and volume profile.
+- Mandatory: Fetch live CoinDCX futures data before making a judgment.`;
+      } else if (lastUserMessage.includes("[STRATEGY_MODE: LIQUIDITY]")) {
+        systemPromptText += `\n\nSTRATEGY DIRECTIVE: LIQUIDITY AUDIT MODE
+- Priorities: Liquidity sweeps, inducement, and internal/external range pools.`;
       }
 
       const systemPromptMsg = { role: 'system', content: systemPromptText };
