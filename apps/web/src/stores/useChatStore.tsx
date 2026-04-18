@@ -33,6 +33,9 @@ interface ChatState {
   streamingState: StreamingState;
   availableModels: string[];
   ollamaStatus: 'connected' | 'disconnected' | 'checking';
+  agentMode: boolean;
+  agentStepMode: 'auto' | 'step';
+  maxIterations: number;
 }
 
 // ── Actions ──
@@ -54,7 +57,10 @@ type ChatAction =
   | { type: 'FINISH_STREAMING'; conversationId: string; messageId: string }
   | { type: 'ADD_AGENT_STEP'; conversationId: string; step: any }
   | { type: 'CLEAR_AGENT_STEPS'; conversationId: string }
-  | { type: 'SET_CONVERSATIONS'; conversations: Conversation[] };
+  | { type: 'SET_CONVERSATIONS'; conversations: Conversation[] }
+  | { type: 'TOGGLE_AGENT_MODE' }
+  | { type: 'SET_AGENT_STEP_MODE'; mode: 'auto' | 'step' }
+  | { type: 'SET_MAX_ITERATIONS'; count: number };
 
 // ── Reducer ──
 
@@ -203,6 +209,15 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'SET_CONVERSATIONS':
       return { ...state, conversations: action.conversations };
 
+    case 'TOGGLE_AGENT_MODE':
+      return { ...state, agentMode: !state.agentMode };
+
+    case 'SET_AGENT_STEP_MODE':
+      return { ...state, agentStepMode: action.mode };
+
+    case 'SET_MAX_ITERATIONS':
+      return { ...state, maxIterations: action.count };
+
     default:
       return state;
   }
@@ -233,7 +248,10 @@ const initialState: ChatState = {
     'qwen2.5:0.5b',
     'deepseek-coder:6.7b'
   ],
-  ollamaStatus: 'checking'
+  ollamaStatus: 'checking',
+  agentMode: savedSettings.agentMode ?? false,
+  agentStepMode: savedSettings.agentStepMode || 'auto',
+  maxIterations: savedSettings.maxIterations ?? 10
 };
 
 // ── Context ──
@@ -267,9 +285,12 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('ai-workspace-settings', JSON.stringify({
       model: state.model,
       isThinkingEnabled: state.isThinkingEnabled,
-      systemPrompt: state.systemPrompt
+      systemPrompt: state.systemPrompt,
+      agentMode: state.agentMode,
+      agentStepMode: state.agentStepMode,
+      maxIterations: state.maxIterations,
     }));
-  }, [state.model, state.isThinkingEnabled, state.systemPrompt]);
+  }, [state.model, state.isThinkingEnabled, state.systemPrompt, state.agentMode, state.agentStepMode, state.maxIterations]);
 
   const activeConversation = state.conversations.find(
     c => c.id === state.activeConversationId
@@ -375,7 +396,10 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
           messages: contextMessages,
           thinking: state.isThinkingEnabled,
           conversation_id: convId,
-          systemPrompt: state.systemPrompt || undefined
+          systemPrompt: state.systemPrompt || undefined,
+          agentMode: state.agentMode,
+          agentStepMode: state.agentStepMode,
+          maxIterations: state.maxIterations,
         }));
       };
 
@@ -431,6 +455,14 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
               conversationId: convId,
               step: data.step
             });
+          } else if (data.type === 'agent_step_pending') {
+            dispatch({
+              type: 'ADD_AGENT_STEP',
+              conversationId: convId,
+              step: { ...data, id: data.stepId, label: `Approve: ${data.toolName}?`, status: 'running', pendingApproval: true }
+            });
+          } else if (data.type === 'sql_result') {
+            window.dispatchEvent(new CustomEvent('sql:result', { detail: data }));
           } else if (data.type === 'done') {
             ws.close();
             dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });

@@ -13,6 +13,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [model, setModel] = useState(state.model);
   const [isThinkingEnabled, setIsThinkingEnabled] = useState(state.isThinkingEnabled);
   const [systemPrompt, setSystemPrompt] = useState(state.systemPrompt || '');
+  const [agentMode, setAgentMode] = useState(state.agentMode);
+  const [agentStepMode, setAgentStepMode] = useState(state.agentStepMode);
+  const [maxIterations, setMaxIterations] = useState(state.maxIterations);
 
   const handleSave = () => {
     dispatch({ type: 'SET_MODEL', model });
@@ -23,6 +26,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     }
     
     dispatch({ type: 'SET_SYSTEM_PROMPT', prompt: systemPrompt });
+    if (state.agentMode !== agentMode) dispatch({ type: 'TOGGLE_AGENT_MODE' });
+    dispatch({ type: 'SET_AGENT_STEP_MODE', mode: agentStepMode });
+    dispatch({ type: 'SET_MAX_ITERATIONS', count: maxIterations });
     onClose();
   };
 
@@ -88,6 +94,61 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
               />
             </button>
           </div>
+
+          {/* Agent Mode */}
+          <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+            <div>
+              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Agent Mode</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Use ReAct loop with tools instead of plain chat.</div>
+            </div>
+            <button
+              onClick={() => setAgentMode(!agentMode)}
+              className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+              style={{ background: agentMode ? 'var(--accent)' : 'var(--bg-surface)' }}
+            >
+              <span
+                className="absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white transition-transform duration-200"
+                style={{ left: agentMode ? '22px' : '2px' }}
+              />
+            </button>
+          </div>
+
+          {/* Agent Execution Mode */}
+          {agentMode && (
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Agent Execution Mode
+              </label>
+              <select
+                value={agentStepMode}
+                onChange={(e) => setAgentStepMode(e.target.value as 'auto' | 'step')}
+                className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
+                style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}
+              >
+                <option value="auto">Auto — run all steps without approval</option>
+                <option value="step">Step — approve each tool call</option>
+              </select>
+            </div>
+          )}
+
+          {/* Max Iterations */}
+          {agentMode && (
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Max Iterations
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={maxIterations}
+                onChange={(e) => setMaxIterations(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
+                style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}
+              />
+              <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Max tool-call iterations before the agent stops (1–50).</p>
+            </div>
+          )}
 
           {/* System Prompt */}
           <div className="space-y-2">
