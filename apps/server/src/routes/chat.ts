@@ -80,10 +80,14 @@ function handleWs(connection: any, req: any) {
 
       if (!messages || !messages.length) return;
       const lastUserMessage = messages[messages.length - 1]?.content || "";
+      const conversationTitle = lastUserMessage.slice(0, 30);
 
       let currentConversationId = conversation_id;
       if (!currentConversationId) {
-        currentConversationId = await db.createConversation(lastUserMessage.slice(0, 30), model, userId);
+        currentConversationId = await db.createConversation(conversationTitle, model, userId);
+      } else {
+        // Client generates UUIDs in the browser before any DB row exists; create the row if missing.
+        await db.ensureConversation(currentConversationId, conversationTitle, model, userId);
       }
 
       // 1. Retrieve Knowledge (RAG)

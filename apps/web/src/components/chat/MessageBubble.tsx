@@ -6,7 +6,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 
 function ThinkingSection({ content }: { content: string }) {
   const [isOpen, setIsOpen] = useState(false);
-  const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/think>|$)/);
+  const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/redacted_thinking>|$)/);
   if (!thinkMatch) return null;
   const thinkContent = thinkMatch[1].trim();
   if (!thinkContent) return null;
@@ -59,7 +59,9 @@ export default function MessageBubble({ message }: { message: Message }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const cleanContent = message.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').trim();
+  const cleanContent = message.content
+    .replace(/<think>[\s\S]*?(?:<\/redacted_thinking>|$)/g, '')
+    .trim();
 
   return (
     <div
