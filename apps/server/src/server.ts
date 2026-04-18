@@ -39,9 +39,10 @@ async function start() {
     timestamp: new Date().toISOString()
   }));
 
+  const port = Number(process.env.PORT) || 4000;
   try {
-    await app.listen({ port: 4000, host: "0.0.0.0" });
-    console.log("Server listening on http://localhost:4000");
+    await app.listen({ port, host: "0.0.0.0" });
+    console.log(`Server listening on http://localhost:${port}`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);

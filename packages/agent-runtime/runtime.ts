@@ -22,43 +22,83 @@ function buildSystemPrompt(schemas: ReturnType<ToolRegistry['schemas']>): string
 Available tools:
 ${toolList}
 
-On every turn, respond ONLY with valid JSON matching this schema:
+On every turn, respond ONLY with valid JSON. 
+STRICT FORMAT:
 {"thought": "<your reasoning>", "tool": "<tool_name>", "args": {<tool arguments>}}
 
 When the task is complete, use the "finish" tool:
 {"thought": "<final reasoning>", "tool": "finish", "args": {"answer": "<comprehensive final answer>"}}
 
-Rules:
-- ONLY respond with JSON — no prose, no markdown, no explanation outside the JSON
-- Always include "thought" to explain your reasoning
-- Use finish ONLY when you have confirmed data — do NOT finish with assumptions or "not found" after a single failed lookup
-- If a tool returns no match, try alternative symbols/actions before concluding something doesn't exist
-- The finish answer field supports markdown — use headers, lists, tables as appropriate
+RULES (STRICT):
+1. Respond WITH ONLY JSON. DO NOT include markdown code blocks (\`\`\`json).
+2. DO NOT include any conversational prose before or after the JSON.
+3. Use finish ONLY when the task is concluded.
+4. All text in the finish "answer" field should be formatted as clean Markdown.
 
 SMC analysis tool routing:
 - For trend, structure, order blocks, FVGs, liquidity, trade setups: use "smc_analysis" tool
-- Always use full_analysis first for a new symbol — it runs HTF + LTF together
-- For entry setups use action=setup with htf=1h ltf=15m
 - smc_analysis fetches its own candles from CoinDCX futures (B-XXX_USDT format); just pass symbol=BTC etc.
 
-CoinDCX tool routing (STRICT):
-- For price/market data queries (price, ticker, orderbook, candles, trade history): ALWAYS use the "coindcx" tool (public, no auth needed)
-- For trading actions (orders, positions, leverage, margin): use "coindcx_futures" tool (requires API keys)
-- NEVER call coindcx_futures for a price or market data query — it will always fail without API keys
-- Discovery order for crypto prices: (1) coindcx(action=spot_ticker, symbol=BTCUSDT) → (2) if not found, coindcx(action=markets, symbol=BTC) to find exact pair name → (3) retry spot_ticker with correct pair → (4) try coindcx(action=futures_prices) for perpetual futures price
-- BTC pairs on CoinDCX: spot uses BTCUSDT or BTCINR; futures uses B-BTC_USDT format`;
+CoinDCX tool routing:
+- For price/market data (public): ALWAYS use "coindcx" tool.
+- For trading actions (private): use "coindcx_futures" tool.
+- BTC pairs: spot uses BTCUSDT; futures uses B-BTC_USDT.`;
 }
 
 function parseToolCall(content: string): ToolCall | null {
-  try {
-    const json = content.match(/\{[\s\S]*\}/)?.[0];
-    if (!json) return null;
-    const parsed = JSON.parse(json);
-    if (typeof parsed.tool !== 'string') return null;
-    return { thought: parsed.thought ?? '', tool: parsed.tool, args: parsed.args ?? {} };
-  } catch {
-    return null;
+  // 1. Try greedy extraction of everything that looks like a JSON block
+  const blocks = content.match(/\{[\s\S]*\}/g) || [];
+  
+  for (const block of blocks) {
+    try {
+      // Clean common terminal model errors (trailing commas, weird escapes)
+      const cleaned = block
+        .replace(/,\s*(\}|\])/g, '$1') // remove trailing commas
+        .replace(/\\n/g, '\n')         // normalize newlines
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
+      if (typeof parsed.tool === 'string') {
+        return { 
+          thought: parsed.thought ?? '', 
+          tool: parsed.tool, 
+          args: parsed.args ?? {} 
+        };
+      }
+    } catch {
+      // Continue to next block if this one was invalid
+    }
   }
+
+  // 2. Fallback: try to find any substring that starts with {"thought" or {"tool"
+  const fragments = content.split(/(\{"thought"|\{"tool")/);
+  if (fragments.length > 1) {
+    for (let i = 1; i < fragments.length; i += 2) {
+      const frag = fragments[i] + fragments[i+1];
+      try {
+        // Attempt to find the matching closing brace
+        let braceCount = 0;
+        let endIdx = -1;
+        for (let j = 0; j < frag.length; j++) {
+          if (frag[j] === '{') braceCount++;
+          if (frag[j] === '}') braceCount--;
+          if (braceCount === 0) {
+            endIdx = j;
+            break;
+          }
+        }
+        if (endIdx !== -1) {
+          const block = frag.slice(0, endIdx + 1);
+          const parsed = JSON.parse(block.replace(/,\s*(\}|\])/g, '$1'));
+          if (typeof parsed.tool === 'string') {
+            return { thought: parsed.thought ?? '', tool: parsed.tool, args: parsed.args ?? {} };
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return null;
 }
 
 export class AgentRuntime {
@@ -98,6 +138,7 @@ export class AgentRuntime {
       const toolCall = parseToolCall(content);
 
       if (!toolCall) {
+        console.error(`[AgentRuntime] Failed to parse model response. Raw content:\n${content}`);
         emit({
           type: 'agent_step',
           payload: {
