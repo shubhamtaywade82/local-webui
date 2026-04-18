@@ -32,26 +32,15 @@ When the task is complete, use the "finish" tool:
 RULES (STRICT):
 1. Respond WITH ONLY JSON. DO NOT include markdown code blocks (\`\`\`json).
 2. DO NOT include any conversational prose before or after the JSON.
-3. Use finish ONLY when the task is concluded.
-4. All text in the finish "answer" field should be formatted as clean Markdown.
+3. **SYMBOL VERIFICATION PROTOCOL (DETERMINISTIC)**:
+   - If a tool returns a "Symbol not found" or "No match" error: **DO NOT GUESS**.
+   - Your NEXT step MUST be: call **coindcx** with action="futures_instruments" (for futures) or action="markets" (for spot) to find the correct canonical name.
+   - Once found, use the exact canonical name in your next tool call.
+4. **NO PSEUDO-CODE**: Never output Ruby, XML, or any scripting content. Respond ONLY with valid JSON.
 5. **Minimize tool calls**: pick the **one** tool that answers the question; avoid calling the same tool twice with the same intent unless the first result was an error you can fix.
-6. **Never call coindcx_futures** for price, ticker, chart, candle, trend, analysis, "what is X trading at", or intraday direction — those are **public market data**. Use **coindcx** (futures_prices, candles, orderbook, …) and/or **smc_analysis** only.
-7. **coindcx_futures** is only for **authenticated trading**: create/cancel/edit **the user's** orders, list **their** orders, **their** positions, margin, leverage. If the user did not ask to trade or manage **their** account, do not use coindcx_futures.
-8. Prefer **smc_analysis** (structure/setup/signals) OR **coindcx** candles once for TA-style questions; do not chain redundant coindcx reads.
-
-SMC analysis tool routing:
-- For trend, structure, order blocks, FVGs, liquidity, trade setups: use "smc_analysis" tool
-- smc_analysis fetches its own candles from CoinDCX futures (B-XXX_USDT format); just pass symbol=BTC etc.
-
-CoinDCX tool routing (public HTTP — see https://docs.coindcx.com/):
-- **coindcx** \`spot_ticker\`, \`markets\`, \`market_details\` → \`api.coindcx.com\` (spot exchange metadata).
-- **coindcx** \`futures_prices\` (RT), futures **OHLCV** (\`candles\` → candlesticks + legacy fallback), **v3 orderbook** for \`B-*_USDT\` → \`public.coindcx.com\`.
-- **coindcx** \`futures_instruments\`, \`futures_instrument\`, \`futures_trades\` → \`api.coindcx.com/.../derivatives/futures/data/...\` (still public read-only; not user account data).
-- **coindcx** \`trade_history\` → legacy \`public.coindcx.com/market_data/trade_history\` (pair-specific); prefer \`futures_trades\` for official futures tape when pair is \`B-*_USDT\`.
-- For **any** public price/market/candle/trend question: use **"coindcx"** only (never coindcx_futures).
-- For **authenticated** trade/account actions only: use **"coindcx_futures"** (requires API keys in the server environment).
-- Spot pairs use market names like BTCUSDT; USDT-margined **perpetual futures** use **B-BTC_USDT**, **B-ETH_USDT** on futures OHLCV/orderbook paths.
-- If the user says "ETHUSDT futures", call coindcx with symbol **B-ETH_USDT** (action=futures_prices or candles). For SMC use symbol **ETH** or **B-ETH_USDT** per smc_analysis tool.`;
+6. **Public market data**: Never use coindcx_futures for price/trend/candles. Use coindcx or smc_analysis.
+7. **Spot vs Futures**: Futures OHLCV/SMC always use **B-BASE_USDT** or **B-BASE_INR**.
+8. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.`;
 }
 
 function preprocessContent(content: string): string {
@@ -71,7 +60,6 @@ function parseToolCall(content: string): ToolCall | null {
   
   for (const block of blocks) {
     try {
-      // Clean common terminal model errors (trailing commas, weird escapes)
       const cleaned = block
         .replace(/,\s*(\}|\])/g, '$1') // remove trailing commas
         .replace(/\\n/g, '\n')         // normalize newlines
@@ -96,7 +84,6 @@ function parseToolCall(content: string): ToolCall | null {
     for (let i = 1; i < fragments.length; i += 2) {
       const frag = fragments[i] + fragments[i+1];
       try {
-        // Attempt to find the matching closing brace
         let braceCount = 0;
         let endIdx = -1;
         for (let j = 0; j < frag.length; j++) {
@@ -155,15 +142,41 @@ export class AgentRuntime {
       }
 
       const content = response.message?.content ?? '';
-      const toolCall = parseToolCall(content);
+      let toolCall = parseToolCall(content);
+
+      // Self-Correction Loop: retry once on parse failure
+      if (!toolCall && iteration < this.config.maxIterations) {
+        emit({
+          type: 'agent_step',
+          payload: {
+            id: `step-${iteration}-retry`,
+            label: 'The model output was unparseable. Retrying with deterministic correction...',
+            status: 'running',
+            iteration
+          }
+        });
+
+        messages.push({ role: 'assistant', content });
+        messages.push({ 
+          role: 'user', 
+          content: 'Error: Invalid response format. You must respond with ONLY valid JSON. Avoid XML, pseudo-code, or conversational text. Use the schema: {"thought": "...", "tool": "...", "args": {...}}' 
+        });
+
+        try {
+          const retryResponse = await this.llm.chat(this.config.model, messages);
+          const retryContent = retryResponse.message?.content ?? '';
+          toolCall = parseToolCall(retryContent);
+        } catch (e) {
+          console.error(`[AgentRuntime] Retry failed: ${(e as Error).message}`);
+        }
+      }
 
       if (!toolCall) {
-        console.error(`[AgentRuntime] Failed to parse model response. Raw content:\n${content}`);
         emit({
           type: 'agent_step',
           payload: {
             id: `step-${iteration}`,
-            label: 'Could not parse the model plan; falling back to a streamed reply.',
+            label: 'Model failed to follow JSON formatting after retries. Falling back to chat.',
             status: 'error',
             iteration
           }
@@ -184,7 +197,6 @@ export class AgentRuntime {
           }
         });
         const answer = String(toolCall.args.answer ?? '');
-        // Emit in ~80-char chunks to preserve whitespace/newlines (word-split mangled markdown)
         const chunkSize = 80;
         for (let i = 0; i < answer.length; i += chunkSize) {
           emit({ type: 'token', payload: { token: answer.slice(i, i + chunkSize) } });
@@ -201,7 +213,7 @@ export class AgentRuntime {
             type: 'agent_step',
             payload: {
               id: `step-${iteration}`,
-              label: 'This step was skipped because you rejected it.',
+              label: 'Step rejected by user.',
               status: 'error',
               iteration
             }
@@ -248,7 +260,7 @@ export class AgentRuntime {
           duration,
           iteration,
           args: toolCall.args,
-          result: toolResult.length > 600 ? toolResult.slice(0, 600) + '…' : toolResult,
+          result: toolResult.length > 800 ? toolResult.slice(0, 800) + '…' : toolResult,
           thought: toolCall.thought || undefined,
         }
       });
@@ -261,7 +273,7 @@ export class AgentRuntime {
       type: 'agent_step',
       payload: {
         id: 'max-iter',
-        label: `Stopped after ${this.config.maxIterations} tool rounds to avoid a runaway loop.`,
+        label: `Max iterations (${this.config.maxIterations}) reached.`,
         status: 'error'
       }
     });
