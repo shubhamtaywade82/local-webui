@@ -24,6 +24,7 @@ import {
   CoinDCXTool,
   CoinDCXFuturesTool,
   SmcAnalysisTool,
+  fetchPublicOhlcv,
 } from "@workspace/tools";
 import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
@@ -143,11 +144,6 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
   if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend && !wantsFutures)) return '';
 
   const { interval, label, limit } = resolveInterval(message);
-  const intervalMs: Record<string, number> = {
-    '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
-    '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
-  };
-  const msPerBar = intervalMs[interval] ?? 14_400_000;
 
   try {
     const parts: string[] = [];
@@ -158,21 +154,15 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
       for (const sym of mentioned) {
         const pair = `B-${sym}_USDT`;
         try {
-          const now = Date.now();
-          const startTime = now - msPerBar * (limit + 5);
-          const url = `${PUBLIC_COINDCX}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+          const sorted = await fetchPublicOhlcv(pair, interval, limit, {
+            signal: AbortSignal.timeout(5_000),
+          });
           let gotTrend = false;
-          if (res.ok) {
-            const raw = await res.json();
-            const candles = Array.isArray(raw) ? raw : [];
-            if (candles.length > 0) {
-              const sorted = [...candles].sort((a, b) => a.time - b.time);
-              const last = sorted[sorted.length - 1];
-              priceRows.push(`${pair} (futures ${label}): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
-              parts.push(`${sym}/USDT FUTURES TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
-              gotTrend = true;
-            }
+          if (sorted.length > 0) {
+            const last = sorted[sorted.length - 1];
+            priceRows.push(`${pair} (futures ${label}): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
+            parts.push(`${sym}/USDT FUTURES TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted as any[])}`);
+            gotTrend = true;
           }
           if (!gotTrend) {
             const rt = await fetchFuturesRtLine(pair);
@@ -209,17 +199,11 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
       for (const sym of mentioned) {
         const pair = `B-${sym}_USDT`;
         try {
-          const now = Date.now();
-          const startTime = now - msPerBar * (limit + 5);
-          const url = `${PUBLIC_COINDCX}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
-          const candleRes = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-          if (candleRes.ok) {
-            const raw = await candleRes.json();
-            const candles = Array.isArray(raw) ? raw : [];
-            if (candles.length > 0) {
-              const sorted = [...candles].sort((a, b) => a.time - b.time);
-              trendParts.push(`${sym}/USDT TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
-            }
+          const sorted = await fetchPublicOhlcv(pair, interval, limit, {
+            signal: AbortSignal.timeout(5_000),
+          });
+          if (sorted.length > 0) {
+            trendParts.push(`${sym}/USDT TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted as any[])}`);
           }
         } catch { /* best effort */ }
       }

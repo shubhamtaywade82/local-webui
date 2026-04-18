@@ -1,37 +1,19 @@
 import { BaseTool, ToolSchema } from './types';
 import { runSmcEngine, Candle, BarResult, DEFAULT_CONFIG, SmcConfig } from './smc-engine';
-
-const PUBLIC_BASE = 'https://public.coindcx.com';
-const API_BASE = 'https://api.coindcx.com';
+import { fetchPublicOhlcv } from './coindcx-public';
 
 // ── Candle fetcher ─────────────────────────────────────────────────────────────
 
 async function fetchCandles(pair: string, interval: string, limit: number): Promise<Candle[]> {
-  const now = Date.now();
-  // Estimate startTime from interval
-  const intervalMs: Record<string, number> = {
-    '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
-    '1h': 3_600_000, '2h': 7_200_000, '4h': 14_400_000, '6h': 21_600_000,
-    '1d': 86_400_000,
-  };
-  const ms = intervalMs[interval] ?? 3_600_000;
-  const startTime = now - ms * (limit + 10);
-
-  const url = `${PUBLIC_BASE}/market_data/candles?pair=${encodeURIComponent(pair)}&interval=${interval}&limit=${limit}&startTime=${startTime}&endTime=${now}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error(`CoinDCX candles ${res.status}: ${await res.text()}`);
-  const raw: unknown = await res.json();
-  if (!Array.isArray(raw)) return [];
-  // Sort ascending by time (API returns descending)
-  return [...raw]
-    .filter((c): c is Record<string, unknown> => c != null && typeof c === 'object' && 'time' in c)
-    .sort((a, b) => Number(a.time) - Number(b.time))
-    .map(c => ({
-      open: parseFloat(String(c.open)), high: parseFloat(String(c.high)),
-      low: parseFloat(String(c.low)), close: parseFloat(String(c.close)),
-      volume: parseFloat(String(c.volume ?? 0)), time: Number(c.time),
-    }))
-    .filter(c => Number.isFinite(c.close) && Number.isFinite(c.time));
+  const bars = await fetchPublicOhlcv(pair, interval, limit, { signal: AbortSignal.timeout(10_000) });
+  return bars.map(b => ({
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+    volume: b.volume,
+    time: b.time,
+  }));
 }
 
 /**

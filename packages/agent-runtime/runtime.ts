@@ -43,10 +43,14 @@ SMC analysis tool routing:
 - For trend, structure, order blocks, FVGs, liquidity, trade setups: use "smc_analysis" tool
 - smc_analysis fetches its own candles from CoinDCX futures (B-XXX_USDT format); just pass symbol=BTC etc.
 
-CoinDCX tool routing:
+CoinDCX tool routing (public HTTP — see https://docs.coindcx.com/):
+- **coindcx** \`spot_ticker\`, \`markets\`, \`market_details\` → \`api.coindcx.com\` (spot exchange metadata).
+- **coindcx** \`futures_prices\` (RT), futures **OHLCV** (\`candles\` → candlesticks + legacy fallback), **v3 orderbook** for \`B-*_USDT\` → \`public.coindcx.com\`.
+- **coindcx** \`futures_instruments\`, \`futures_instrument\`, \`futures_trades\` → \`api.coindcx.com/.../derivatives/futures/data/...\` (still public read-only; not user account data).
+- **coindcx** \`trade_history\` → legacy \`public.coindcx.com/market_data/trade_history\` (pair-specific); prefer \`futures_trades\` for official futures tape when pair is \`B-*_USDT\`.
 - For **any** public price/market/candle/trend question: use **"coindcx"** only (never coindcx_futures).
 - For **authenticated** trade/account actions only: use **"coindcx_futures"** (requires API keys in the server environment).
-- Spot pairs use market names like BTCUSDT; CoinDCX USDT-margined **perpetual futures** use **B-BTC_USDT**, **B-ETH_USDT** (not "ETHUSDT" alone on the candles API).
+- Spot pairs use market names like BTCUSDT; USDT-margined **perpetual futures** use **B-BTC_USDT**, **B-ETH_USDT** on futures OHLCV/orderbook paths.
 - If the user says "ETHUSDT futures", call coindcx with symbol **B-ETH_USDT** (action=futures_prices or candles). For SMC use symbol **ETH** or **B-ETH_USDT** per smc_analysis tool.`;
 }
 

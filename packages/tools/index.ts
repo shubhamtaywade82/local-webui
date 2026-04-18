@@ -9,6 +9,7 @@ export * from './code-tools';
 export * from './web-tools';
 export * from './coindcx-tool';
 export * from './coindcx-futures-tool';
+export * from './coindcx-public';
 export * from './smc-analysis-tool';
 
 export class ToolRegistry {

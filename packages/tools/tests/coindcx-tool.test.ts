@@ -83,4 +83,50 @@ describe('CoinDCXTool', () => {
     expect(result).toContain('B-ETH_USDT');
     expect(result).toContain('2400.5');
   });
+
+  it('candles calls futures candlesticks for B-*_USDT', async () => {
+    const t = 1_704_153_600_000;
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        s: 'ok',
+        data: [{ open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, time: t }],
+      }),
+    } as any);
+    const result = await tool.execute({ action: 'candles', symbol: 'B-ETH_USDT', interval: '1h', limit: '5' });
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('candlesticks');
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('pcode=f');
+    expect(result).toContain('B-ETH_USDT');
+    expect(result).toContain('open=1');
+  });
+
+  it('orderbook uses v3 futures URL for B-*_USDT', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ bids: { '100': '1' }, asks: { '101': '2' }, ts: 1, vs: 1 }),
+    } as any);
+    const result = await tool.execute({ action: 'orderbook', symbol: 'B-BTC_USDT', depth: '10' });
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('v3/orderbook/B-BTC_USDT-futures/10');
+    expect(result).toContain('bid');
+  });
+
+  it('futures_instruments returns formatted list', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ['B-A_USDT', 'B-B_USDT'],
+    } as any);
+    const result = await tool.execute({ action: 'futures_instruments' });
+    expect(result).toContain('2 active futures');
+    expect(result).toContain('B-A_USDT');
+  });
+
+  it('returns error when symbol missing for futures_instrument', async () => {
+    const result = await tool.execute({ action: 'futures_instrument' });
+    expect(result).toContain('symbol required');
+  });
+
+  it('returns error when symbol missing for futures_trades', async () => {
+    const result = await tool.execute({ action: 'futures_trades' });
+    expect(result).toContain('symbol required');
+  });
 });

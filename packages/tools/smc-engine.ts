@@ -206,7 +206,7 @@ export function runSmcEngine(candles: Candle[], cfg: Partial<SmcConfig> = {}): B
       s.dayHigh = high; s.dayLow = low;
     } else {
       s.dayHigh = Math.max(s.dayHigh, high);
-      s.dayLow = Math.min(s.dayLow, low);
+      s.dayLow = Math.min(s.dayLow ?? low, low);
     }
     s.prevCalendarDate = date;
 
