@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import path from "path";
 import fs from "fs/promises";
+import { knowledgeEngine } from "../services/knowledgeSingleton";
 
 interface FileNode {
   name: string;

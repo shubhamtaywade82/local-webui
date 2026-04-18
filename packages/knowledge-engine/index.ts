@@ -10,6 +10,7 @@ import { retrievePersistent } from "./retrieve";
 import { ingestKnowledge } from "./ingestor";
 
 export class KnowledgeEngine {
+  private roots: string[];
   private directories: DirectoryNode[] = [];
   private documentMap: Map<string, DocumentNode[]> = new Map();
   private chunkMap: Map<string, Chunk[]> = new Map(); // Doc path -> Chunks
@@ -17,7 +18,8 @@ export class KnowledgeEngine {
   private isIndexing: boolean = false;
   private pool: Pool;
 
-  constructor(private root: string) {
+  constructor(roots: string | string[]) {
+    this.roots = Array.isArray(roots) ? roots : [roots];
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/ai_workspace"
     });
@@ -29,15 +31,19 @@ export class KnowledgeEngine {
     this.isIndexing = true;
     
     try {
-      console.log(`[KnowledgeEngine] Refreshing from: ${this.root}`);
-      this.directories = scanKnowledgeTree(this.root);
       this.documentMap.clear();
       this.chunkMap.clear();
       this.vectorStore.clear();
 
-      for (const dir of this.directories) {
-        const docs = scanDocuments(dir.path);
-        this.documentMap.set(dir.path, docs);
+      for (const root of this.roots) {
+        console.log(`[KnowledgeEngine] Refreshing from root: ${root}`);
+        // For documentation hierarchies, we still want the level-1 directory structure
+        const rootDirs = scanKnowledgeTree(root);
+        this.directories = [...this.directories, ...rootDirs];
+
+        // But for file discovery, we use the new recursive scanner on the entire root
+        const docs = scanDocuments(root);
+        this.documentMap.set(root, docs);
 
         for (const doc of docs) {
           try {
@@ -50,23 +56,22 @@ export class KnowledgeEngine {
           }
         }
       }
-      console.log(`[KnowledgeEngine] Refresh complete. Indexed ${this.directories.length} dirs, ${this.getStats().totalDocuments} docs.`);
+      console.log(`[KnowledgeEngine] Refresh complete. Total documents: ${Array.from(this.documentMap.values()).flat().length}`);
     } finally {
       this.isIndexing = false;
     }
   }
 
-  /**
-   * Automate persistent ingestion into the database
-   */
   async ingest() {
-    console.log(`[KnowledgeEngine] Triggering persistent ingestion for: ${this.root}`);
-    try {
-      await ingestKnowledge(this.root, this.pool);
-      await this.refresh(); // Sync in-memory state after DB ingestion
-    } catch (err) {
-      console.error("[KnowledgeEngine] Ingestion failed:", err);
+    for (const root of this.roots) {
+      console.log(`[KnowledgeEngine] Triggering persistent ingestion for: ${root}`);
+      try {
+        await ingestKnowledge(root, this.pool);
+      } catch (err) {
+        console.error(`[KnowledgeEngine] Ingestion failed for ${root}:`, err);
+      }
     }
+    await this.refresh(); // Sync in-memory state after all roots are ingested
   }
 
   /**

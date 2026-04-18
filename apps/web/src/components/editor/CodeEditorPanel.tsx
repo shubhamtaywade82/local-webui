@@ -175,7 +175,7 @@ export default function CodeEditorPanel() {
           title="New untitled file"
           onClick={() => {
             const id = crypto.randomUUID();
-            openFile(`workspace/untitled-${id.slice(0, 4)}.txt`, '');
+            openFile(`untitled-${id.slice(0, 4)}.txt`, '');
           }}
         >
           <Plus size={12} style={{ color: 'var(--text-muted)' }} />
