@@ -285,10 +285,11 @@ function KnowledgeBaseView() {
 function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
   const [hoveredAction, setHoveredAction] = useState<number | null>(null);
   const [pulse, setPulse] = useState<any[]>([]);
-  const [lastPrices, setLastPrices] = useState<Record<string, number>>({});
   const [flashStates, setFlashStates] = useState<Record<string, 'up' | 'down' | null>>({});
 
   useEffect(() => {
+    let lastKnownPrices: Record<string, number> = {};
+
     // Initial fetch
     const fetchPulse = async () => {
       try {
@@ -296,11 +297,10 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
         if (res.ok) {
           const data = await res.json();
           setPulse(data.pulse);
-          const nextPrices: Record<string, number> = {};
           data.pulse.forEach((p: any) => {
-            nextPrices[p.sym] = parseFloat(p.price.replace(/,/g, ''));
+            const n = parseFloat(String(p.price ?? '').replace(/,/g, ''));
+            if (Number.isFinite(n)) lastKnownPrices[p.sym] = n;
           });
-          setLastPrices(nextPrices);
         }
       } catch (err) {
         console.error('Pulse fetch failed:', err);
@@ -308,46 +308,87 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
     };
     fetchPulse();
 
-    // WebSocket link
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/market/ws`);
+    // Same-origin WS via Vite proxy → Fastify `/market/ws` (see apps/server/src/routes/market.ts)
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.host}/api/market/ws`;
+    let socketRef: WebSocket | null = null;
+    let reconnectTimeout: any = null;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
+    const connect = () => {
+      if (socketRef) socketRef.close();
+      
+      const ws = new WebSocket(wsUrl);
+      socketRef = ws;
+
+      ws.onopen = () => {
+        console.log('Market Pulse WS connected:', wsUrl);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          
+          if (msg.type === 'initial') {
+            setPulse(msg.data);
+            msg.data.forEach((p: any) => {
+              const n = parseFloat(String(p.price ?? '').replace(/,/g, ''));
+              if (Number.isFinite(n)) lastKnownPrices[p.sym] = n;
+            });
+            return;
+          }
+
         if (msg.type === 'update') {
           const update = msg.data;
-          const currentPrice = parseFloat(update.price.replace(/,/g, ''));
-          
-          setPulse(prev => {
-            const next = [...prev];
-            const idx = next.findIndex(p => p.sym === update.sym);
-            if (idx >= 0) {
-              next[idx] = { ...next[idx], ...update };
-            } else {
-              next.push(update);
-            }
-            return next;
-          });
+          const currentPrice = parseFloat(String(update.price ?? '').replace(/,/g, ''));
+          if (!Number.isFinite(currentPrice)) {
+            return;
+          }
+            
+            setPulse(prev => {
+              const next = [...prev];
+              const idx = next.findIndex(p => p.sym === update.sym);
+              if (idx >= 0) {
+                next[idx] = { ...next[idx], ...update };
+              } else {
+                next.push(update);
+              }
+              return next;
+            });
 
-          // Trigger Flash Animation
-          setLastPrices(prev => {
-            const prevPrice = prev[update.sym] || 0;
+            // Trigger Flash Animation using local ref
+            const prevPrice = lastKnownPrices[update.sym] || 0;
             if (currentPrice !== prevPrice) {
               setFlashStates(f => ({ ...f, [update.sym]: currentPrice > prevPrice ? 'up' : 'down' }));
               setTimeout(() => {
                 setFlashStates(f => ({ ...f, [update.sym]: null }));
               }, 600);
             }
-            return { ...prev, [update.sym]: currentPrice };
-          });
+            lastKnownPrices[update.sym] = currentPrice;
+          }
+        } catch (err) {
+          console.error('WS Pulse data error:', err);
         }
-      } catch (err) {
-        console.error('WS Pulse error:', err);
-      }
+      };
+
+      ws.onerror = (err) => {
+        console.error('Alpha Pulse Stream Error:', err);
+      };
+
+      ws.onclose = () => {
+        console.warn('Alpha Pulse Stream closed. Retrying in 3s...');
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
     };
 
-    return () => ws.close();
+    connect();
+
+    return () => {
+      if (socketRef) {
+        socketRef.onclose = null;
+        socketRef.close();
+      }
+      clearTimeout(reconnectTimeout);
+    };
   }, []);
 
   const marketPulse = pulse.length > 0 ? pulse : [
@@ -433,7 +474,10 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
                   <span className="text-xs font-bold text-[var(--text-primary)]">{item.sym}</span>
                   <span className="text-[9px] font-mono" style={{ color: item.color }}>{item.change}</span>
                 </div>
-                <div className={`text-[10px] font-medium mb-1 transition-all ${flashClass}`} style={{ color: flash ? undefined : 'var(--text-secondary)' }}>
+                <div 
+                  className={`text-[10px] font-medium mb-1 transition-all ${flashClass}`} 
+                  style={{ color: flash === 'up' ? 'var(--success)' : flash === 'down' ? 'var(--error)' : 'var(--text-secondary)' }}
+                >
                   ${item.price}
                 </div>
                 <div className="h-0.5 w-full bg-white/[0.05] rounded-full overflow-hidden">

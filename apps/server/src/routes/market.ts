@@ -14,14 +14,37 @@ export default async function routes(app: FastifyInstance) {
       const targets = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       
       const results = tickers
-        .filter(t => targets.includes(t.market))
-        .map(t => ({
-          sym: t.market.replace('USDT', ''),
-          price: parseFloat(t.last_price).toLocaleString(undefined, { minimumFractionDigits: 1 }),
-          change: (t.change_24_hour > 0 ? '+' : '') + parseFloat(t.change_24_hour).toFixed(1) + '%',
-          trend: t.change_24_hour > 2 ? 'Strong Bull' : t.change_24_hour > 0 ? 'Bullish' : t.change_24_hour > -2 ? 'Neutral' : 'Bearish',
-          color: t.change_24_hour > 0 ? 'var(--success)' : t.change_24_hour < -2 ? 'var(--error)' : 'var(--warning)'
-        }));
+        .filter((t) => targets.includes(t.market))
+        .map((t) => {
+          const sym = t.market.replace('USDT', '');
+          const lastNum = parseFloat(String(t.last_price));
+          const chg = parseFloat(String(t.change_24_hour));
+          const price = Number.isFinite(lastNum)
+            ? lastNum.toLocaleString(undefined, { minimumFractionDigits: sym === 'BTC' ? 1 : 2 })
+            : '--';
+          const hasChg = Number.isFinite(chg);
+          return {
+            sym,
+            price,
+            change: hasChg ? `${chg > 0 ? '+' : ''}${chg.toFixed(1)}%` : '0%',
+            trend: hasChg
+              ? chg > 2
+                ? 'Strong Bull'
+                : chg > 0
+                  ? 'Bullish'
+                  : chg > -2
+                    ? 'Neutral'
+                    : 'Bearish'
+              : 'Neutral',
+            color: hasChg
+              ? chg > 0
+                ? 'var(--success)'
+                : chg < -2
+                  ? 'var(--error)'
+                  : 'var(--warning)'
+              : 'var(--text-muted)',
+          };
+        });
 
       return { pulse: results };
     } catch {
@@ -29,14 +52,18 @@ export default async function routes(app: FastifyInstance) {
     }
   });
 
-  // New WebSocket Relay
-  app.get("/ws", { websocket: true }, (connection, req) => {
-    const onUpdate = (update: any) => {
+  /** Browser Market Pulse: same-origin via Vite `/api` → `/market/ws` (see `vite.config.ts` rewrite). */
+  app.get("/ws", { websocket: true }, (connection) => {
+    const latest = marketStream.getLatest();
+    if (latest.length > 0 && connection.socket.readyState === 1) {
+      connection.socket.send(JSON.stringify({ type: "initial", data: latest }));
+    }
+
+    const onUpdate = (update: unknown) => {
+      if (connection.socket.readyState !== 1) return;
       connection.socket.send(JSON.stringify({ type: "update", data: update }));
     };
-
     marketStream.on("update", onUpdate);
-
     connection.socket.on("close", () => {
       marketStream.off("update", onUpdate);
     });

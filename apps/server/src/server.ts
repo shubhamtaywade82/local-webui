@@ -62,6 +62,7 @@ const shutdown = async (signal: string) => {
   forceExit.unref(); // don't keep process alive if close finishes first
   try {
     stopFuturesAutomation();
+    marketStream.stop();
     await app.close();
     console.log("Server closed.");
   } catch (err) {

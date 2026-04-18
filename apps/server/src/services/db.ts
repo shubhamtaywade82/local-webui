@@ -145,7 +145,8 @@ ConversationSummary.belongsTo(Conversation, { foreignKey: 'conversationId' });
 // Sync schema. `alter` updates existing tables in dev when models gain columns.
 // Production often sets NODE_ENV=production (alter off); `patchConversationUserIdColumn`
 // still adds `user_id` if missing so authenticated GET /conversations does not 500.
-const syncOptions = { alter: process.env.NODE_ENV !== 'production' };
+// Temporarily disabling alter to avoid EADDRINUSE/migration loops during high-speed hot-reloads.
+const syncOptions = { alter: false };
 
 async function patchConversationUserIdColumn(): Promise<void> {
   try {
