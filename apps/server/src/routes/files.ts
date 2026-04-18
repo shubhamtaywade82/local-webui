@@ -50,8 +50,12 @@ export default async function routes(app: FastifyInstance) {
   });
 
   app.get("/read", async (req: any, res) => {
-    const { path: filePath } = req.query;
+    let { path: filePath } = req.query;
     if (!filePath) return res.status(400).send({ error: "Missing path" });
+    
+    // Normalize path to avoid double-rooting
+    if (filePath.startsWith("workspace/")) filePath = filePath.replace("workspace/", "");
+    if (filePath.startsWith("/workspace/")) filePath = filePath.replace("/workspace/", "");
     
     const fullPath = path.join(WORKSPACE_ROOT, filePath);
     if (!fullPath.startsWith(WORKSPACE_ROOT)) {
@@ -67,8 +71,12 @@ export default async function routes(app: FastifyInstance) {
   });
 
   app.post("/write", async (req: any, res) => {
-    const { path: filePath, content } = req.body;
+    let { path: filePath, content } = req.body;
     if (!filePath) return res.status(400).send({ error: "Missing path" });
+
+    // Normalize path to avoid double-rooting
+    if (filePath.startsWith("workspace/")) filePath = filePath.replace("workspace/", "");
+    if (filePath.startsWith("/workspace/")) filePath = filePath.replace("/workspace/", "");
 
     const fullPath = path.join(WORKSPACE_ROOT, filePath);
     if (!fullPath.startsWith(WORKSPACE_ROOT)) {
@@ -77,6 +85,12 @@ export default async function routes(app: FastifyInstance) {
 
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, content, "utf-8");
+    
+    // Phase 5: Trigger RAG ingestion in background
+    knowledgeEngine.ingest().catch(err => 
+      console.error("[FilesRoute] Background ingestion failed:", err)
+    );
+
     return { success: true };
   });
 
@@ -96,6 +110,12 @@ export default async function routes(app: FastifyInstance) {
       } else {
         await fs.unlink(fullPath);
       }
+
+      // Refresh KnowledgeEngine to remove deleted files from index
+      knowledgeEngine.refresh().catch(err => 
+        console.error("[FilesRoute] Background refresh failed:", err)
+      );
+
       return { success: true };
     } catch (err) {
       return res.status(404).send({ error: "File or directory not found" });
