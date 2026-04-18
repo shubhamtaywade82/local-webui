@@ -7,6 +7,7 @@ export * from './db-tools';
 export * from './kb-tools';
 export * from './code-tools';
 export * from './web-tools';
+export * from './coindcx-tool';
 
 export class ToolRegistry {
   private tools: Map<string, BaseTool> = new Map();

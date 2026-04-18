@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check,
-  Activity, Loader2, CheckCircle2, XCircle
+  Loader2, CheckCircle2, XCircle
 } from 'lucide-react';
 import { type Message } from '../../stores/useChatStore';
 import { useEditorStore } from '../../stores/useEditorStore';
@@ -31,55 +31,41 @@ function InlineAgentActivity({
   };
 
   return (
-    <div
-      className="mb-3 rounded-xl overflow-hidden"
-      style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)' }}
-    >
-      <div
-        className="flex items-center gap-1.5 px-3 py-2"
-        style={{ borderBottom: '1px solid var(--border-subtle)' }}
-      >
-        <Activity size={12} style={{ color: 'var(--accent)' }} />
-        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-          Live progress
-        </span>
-      </div>
-      <ul className="max-h-40 overflow-y-auto px-2 py-1.5 space-y-1">
-        {steps.map((step) => (
-          <li
-            key={step.id}
-            className={`flex items-start gap-2 text-left py-0.5 px-1 rounded-md hover:bg-white/[0.03] ${step.status === 'running' ? 'animate-pulse' : ''}`}
-          >
-            <span className="flex-shrink-0 mt-0.5">{statusIcon(step.status, step.status === 'running')}</span>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
-                {step.label}
-              </div>
-              {step.pendingApproval && onAgentApproval && (
-                <div className="flex gap-1.5 mt-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onAgentApproval(true, step.id)}
-                    className="text-[9px] px-1.5 py-0.5 rounded font-medium"
-                    style={{ background: 'var(--accent)', color: '#fff' }}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAgentApproval(false, step.id)}
-                    className="text-[9px] px-1.5 py-0.5 rounded font-medium"
-                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
+    <ul className="mb-3 space-y-1">
+      {steps.map((step) => (
+        <li
+          key={step.id}
+          className={`flex items-start gap-2 text-left py-0.5 px-1 rounded-md ${step.status === 'running' ? 'animate-pulse' : ''}`}
+        >
+          <span className="flex-shrink-0 mt-0.5">{statusIcon(step.status, step.status === 'running')}</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
+              {step.label}
             </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+            {step.pendingApproval && onAgentApproval && (
+              <div className="flex gap-1.5 mt-1.5">
+                <button
+                  type="button"
+                  onClick={() => onAgentApproval(true, step.id)}
+                  className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: 'var(--accent)', color: '#fff' }}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAgentApproval(false, step.id)}
+                  className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

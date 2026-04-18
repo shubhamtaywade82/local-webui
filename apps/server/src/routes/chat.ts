@@ -21,6 +21,7 @@ import {
   SearchKbTool, IngestDocumentTool,
   RunCodeTool,
   WebSearchTool, FetchUrlTool,
+  CoinDCXTool,
 } from "@workspace/tools";
 import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
@@ -46,6 +47,7 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new RunCodeTool());
   registry.register(new WebSearchTool());
   registry.register(new FetchUrlTool());
+  registry.register(new CoinDCXTool());
   return registry;
 }
 
