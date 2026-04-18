@@ -423,6 +423,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
               messageId: assistantId,
               token: `\n\n**Stream Error:** ${data.error}`
             });
+            dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });
             dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
           } else if (data.type === 'agent_step') {
             dispatch({

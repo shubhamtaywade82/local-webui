@@ -79,6 +79,7 @@ export class OllamaClient {
       console.log("[OllamaClient] Streaming finished successfully");
     } catch (err) {
       console.error("[OllamaClient] Fetch error:", err);
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 }

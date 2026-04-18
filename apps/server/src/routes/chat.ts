@@ -25,6 +25,12 @@ function handleWs(connection: any, req: any) {
         let currentConversationId = conversation_id;
         if (!currentConversationId) {
           currentConversationId = await db.createConversation(lastUserMessage.slice(0, 30), model);
+        } else {
+          await db.ensureConversation(
+            currentConversationId,
+            lastUserMessage.slice(0, 30),
+            model || "qwen2.5:0.5b"
+          );
         }
 
         // 1. Retrieve Knowledge (RAG)
@@ -186,7 +192,15 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         }
 
       } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
         console.error("[ChatRoute] Failed to parse message:", err);
+        try {
+          connection.socket.send(
+            JSON.stringify({ type: "error", error: errorMsg })
+          );
+        } catch {
+          // socket may already be closed
+        }
       }
     });
 

@@ -68,6 +68,14 @@ export const db = {
     return id;
   },
 
+  /** Ensures a row exists for client-supplied conversation IDs (Web UI generates UUIDs locally). */
+  async ensureConversation(id: string, title: string, model: string) {
+    await Conversation.findOrCreate({
+      where: { id },
+      defaults: { title, model },
+    });
+  },
+
   async listConversations() {
     return Conversation.findAll({
       order: [['createdAt', 'DESC']],
