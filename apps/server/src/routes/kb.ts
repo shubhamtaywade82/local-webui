@@ -1,9 +1,10 @@
 import { FastifyInstance } from "fastify";
 import path from "path";
 import fs from "fs/promises";
-import { KnowledgeEngine } from "@workspace/knowledge-engine";
+import { knowledgeEngine } from "../services/knowledgeSingleton";
+import { resolveKnowledgeRoot } from "../config/knowledgeRoot";
 
-const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../options-buying-kb"));
+const knowledge = knowledgeEngine;
 
 export default async function routes(app: FastifyInstance) {
   app.post("/upload", async (req, res) => {
@@ -12,8 +13,8 @@ export default async function routes(app: FastifyInstance) {
       return res.status(400).send({ error: "No file uploaded" });
     }
 
-    const kbDir = path.join(process.cwd(), "../../options-buying-kb");
-    // Ensure the directly exists
+    const kbDir = resolveKnowledgeRoot();
+    // Ensure the directory exists
     await fs.mkdir(kbDir, { recursive: true });
 
     // Sanitize filename to avoid directory traversal

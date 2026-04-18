@@ -1,12 +1,11 @@
 import { FastifyInstance } from "fastify";
 import { OllamaClient } from "@workspace/ollama-client";
-import { KnowledgeEngine } from "@workspace/knowledge-engine";
 import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
-import path from "path";
+import { knowledgeEngine } from "../services/knowledgeSingleton";
 
 const ollama = new OllamaClient();
-const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../options-buying-kb"));
+const knowledge = knowledgeEngine;
 
 export default async function routes(app: FastifyInstance) {
   app.get("/", { websocket: true }, (connection, req) => {

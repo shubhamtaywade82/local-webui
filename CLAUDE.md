@@ -12,7 +12,7 @@ Open the Vite URL (usually `http://localhost:5173`). API is proxied from `/api` 
 
 ## What this is
 
-pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@workspace/ollama-client**, **@workspace/knowledge-engine**, markdown KB in `options-buying-kb/`.
+pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@workspace/ollama-client**, **@workspace/knowledge-engine**, markdown KB in `knowledge/` (override with `KNOWLEDGE_ROOT`).
 
 ## Commands
 
@@ -20,16 +20,18 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 |---------|---------|
 | `pnpm dev` | Web + server in watch mode |
 | `pnpm build` | Build all workspaces |
-| `pnpm exec tsx scripts/ingest.ts` | Load KB into Postgres |
+| `pnpm exec tsx scripts/ingest.ts` | Load KB into Postgres (`knowledge/` by default; `KNOWLEDGE_INGEST_PATH` to change) |
 
 ## Env
 
 - `DATABASE_URL` — Postgres (Sequelize + knowledge-engine pool). Default user/db in `apps/server/src/services/db.ts`.
 - `OLLAMA_URL` — only affects **`/models`** proxy in server, not `OllamaClient` (still default `http://localhost:11434`).
+- `KNOWLEDGE_ROOT` — RAG root relative to `apps/server` cwd (default `../../knowledge`).
+- `KNOWLEDGE_INGEST_PATH` — folder name under repo root for `scripts/ingest.ts` (default `knowledge`).
 
 ## Touch points when editing
 
-- Chat + RAG: `apps/server/src/routes/chat.ts`
+- Chat + RAG: `apps/server/src/routes/chat.ts`, KB root: `apps/server/src/config/knowledgeRoot.ts`
 - Ollama list: `apps/server/src/routes/models.ts`
 - DB models: `apps/server/src/services/db.ts`
 - UI/API calls: `apps/web/src/stores/useChatStore.tsx` (`/api/chat`, `/api/models`)
@@ -37,6 +39,6 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 
 ## Gotchas
 
-- Knowledge path is tied to running server from `apps/server` (`../../options-buying-kb`).
+- Knowledge path defaults to `../../knowledge` from `apps/server` cwd; use `KNOWLEDGE_ROOT=../../options-buying-kb` for the legacy-only tree.
 - Embeddings: `packages/knowledge-engine/embed.ts` uses a fixed base URL (see file); mismatch with Ollama disables vector leg of retrieval.
 - See **AGENTS.md** for full architecture and agent-oriented notes.

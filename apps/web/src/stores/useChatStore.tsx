@@ -338,7 +338,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     abortRef.current = controller;
 
     try {
-      const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/chat`;
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/chat/`;
       const ws = new WebSocket(wsUrl);
 
       dispatch({ type: 'SET_STREAMING_STATE', state: 'streaming' });

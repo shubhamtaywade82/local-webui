@@ -1,6 +1,6 @@
 # local-webui — agent context
 
-Local-first AI workspace: React + Vite UI, Fastify API, Ollama for chat, PostgreSQL for conversations and optional vector RAG, markdown knowledge under `options-buying-kb/`.
+Local-first AI workspace: React + Vite UI, Fastify API, Ollama for chat, PostgreSQL for conversations and optional vector RAG, markdown knowledge under `knowledge/` by default (override with `KNOWLEDGE_ROOT` from `apps/server` cwd).
 
 ## Repo layout
 
@@ -10,8 +10,9 @@ Local-first AI workspace: React + Vite UI, Fastify API, Ollama for chat, Postgre
 | `apps/server` | Fastify API (`@workspace/server`), port **4000** |
 | `packages/ollama-client` | Thin Ollama `/api/chat` client (non-stream + stream) |
 | `packages/knowledge-engine` | Scan/chunk/embed/search over markdown; DB + in-memory hybrid |
-| `options-buying-kb/` | Default on-disk knowledge tree (RAG source) |
-| `scripts/ingest.ts` | One-shot DB ingestion for the knowledge engine |
+| `knowledge/` | Default on-disk knowledge tree (RAG): subdirs with `index.md` + `*.md` |
+| `options-buying-kb/` | Optional legacy KB; point `KNOWLEDGE_ROOT` here if you still want it indexed alone |
+| `scripts/ingest.ts` | One-shot DB ingestion (`KNOWLEDGE_INGEST_PATH`, default `knowledge`) |
 
 ## Runtime dependencies
 
@@ -53,6 +54,8 @@ pnpm exec tsx scripts/ingest.ts
 |----------|---------|---------|
 | `DATABASE_URL` | `apps/server` Sequelize, `knowledge-engine` Pool | `postgresql://postgres:postgres@localhost:5432/ai_workspace` |
 | `OLLAMA_URL` | `apps/server` routes/models only | `http://localhost:11434` |
+| `KNOWLEDGE_ROOT` | `KnowledgeEngine` root (path relative to `apps/server` cwd unless absolute) | `../../knowledge` |
+| `KNOWLEDGE_INGEST_PATH` | `scripts/ingest.ts` KB folder relative to repo root | `knowledge` |
 
 `OllamaClient` base URL is **not** wired to `OLLAMA_URL` today (constructor default `http://localhost:11434`).
 
@@ -60,7 +63,7 @@ pnpm exec tsx scripts/ingest.ts
 
 - **pnpm workspace** — depend with `workspace:*` on `@workspace/*` packages.
 - **TypeScript** — server builds with `tsc`; web uses `tsc && vite build`.
-- **Knowledge root** — `chat.ts` resolves KB with `path.join(process.cwd(), "../../options-buying-kb")` relative to **`apps/server` cwd**; changing working directory or layout breaks RAG paths.
+- **Knowledge root** — `resolveKnowledgeRoot()` (default `../../knowledge` from **`apps/server` cwd**). Set `KNOWLEDGE_ROOT` for another tree (e.g. `../../options-buying-kb`).
 - **UI state** — chat/settings live in `useChatStore.tsx` (reducer + context); model list from `GET /api/models`.
 
 ## Principles (align with parent workspace)

@@ -12,7 +12,7 @@ interface MarkdownRendererProps {
 
 function CodeBlock({ language, code, meta }: { language: string; code: string; meta?: string }) {
   const [copied, setCopied] = useState(false);
-  const { openFile } = useEditorStore();
+  const { files, openFile, updateContent } = useEditorStore();
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code);
@@ -20,20 +20,50 @@ function CodeBlock({ language, code, meta }: { language: string; code: string; m
     setTimeout(() => setCopied(false), 2000);
   }, [code]);
 
+  const parsePath = (metaString?: string) => {
+    if (!metaString) return null;
+    const match = metaString.match(/path=([^\s]+)/);
+    return match ? match[1] : metaString.split(' ')[0];
+  };
+
+  const getDisplayPath = () => {
+    return parsePath(meta) || `untitled.${language}`;
+  };
+
+  const handleApply = () => {
+    const path = getDisplayPath();
+    openFile(path, code);
+    
+    // Ensure content is updated if the file was already open
+    const existing = files.find(f => f.path === path);
+    if (existing) {
+      updateContent(existing.id, code);
+    }
+
+    // Optional: Dispatch event for UI feedback or other listeners
+    window.dispatchEvent(new CustomEvent('editor:tool_call', {
+      detail: { path, content: code }
+    }));
+  };
+
   return (
-    <div className="code-block-wrapper">
-      <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] border-b border-white/5">
-        <span className="text-xs font-mono text-gray-400">
-          {meta || language}
-        </span>
+    <div className="code-block-wrapper my-4 rounded-xl overflow-hidden border border-white/5 bg-[#0f0f1a] shadow-2xl">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#1a1a2e] border-b border-white/5">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 mr-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f56]" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[#27c93f]" />
+          </div>
+          <span className="text-[10px] font-mono text-gray-400 opacity-60">
+            {getDisplayPath()}
+          </span>
+        </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => {
-              const path = meta || `untitled.${language}`;
-              openFile(path, code);
-            }}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold rounded hover:bg-white/10 transition-colors text-blue-400 hover:text-blue-300"
-            title="Open in Editor"
+            onClick={handleApply}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md hover:bg-white/5 transition-all text-blue-400 hover:text-blue-300 active:scale-95"
+            title="Open/Update in Workspace Editor"
           >
             <FileDown size={12} />
             Apply to Editor
@@ -43,8 +73,9 @@ function CodeBlock({ language, code, meta }: { language: string; code: string; m
 
           <button
             onClick={handleCopy}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold rounded hover:bg-white/10 transition-colors ${copied ? 'text-green-400' : 'text-gray-400 hover:text-gray-300'}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-md hover:bg-white/5 transition-all active:scale-95 ${copied ? 'text-green-400' : 'text-gray-400 hover:text-gray-300'}`}
           >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
