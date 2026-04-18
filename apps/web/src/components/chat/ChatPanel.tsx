@@ -12,7 +12,7 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatPanel() {
-  const { state, activeConversation, sendMessage, createNewConversation } = useChatStore();
+  const { state, activeConversation, sendMessage, createNewConversation, submitAgentApproval } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const messages = activeConversation?.messages ?? [];
   const isStreaming = state.streamingState === 'streaming' || state.streamingState === 'thinking';
@@ -23,7 +23,7 @@ export default function ChatPanel() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, messages[messages.length - 1]?.content]);
+  }, [messages, messages[messages.length - 1]?.content, activeConversation?.agentSteps?.length]);
 
   const handleSuggestion = (prompt: string) => {
     if (!activeConversation) createNewConversation();
@@ -93,12 +93,20 @@ export default function ChatPanel() {
           ) : (
             /* ── Message List ── */
             <div className="space-y-4 pb-4">
-              {messages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  message={msg}
-                />
-              ))}
+              {messages.map((msg, idx) => {
+                const isLast = idx === messages.length - 1;
+                const agentSteps = activeConversation?.agentSteps ?? [];
+                const showInlineAgent =
+                  msg.role === 'assistant' && isLast && agentSteps.length > 0;
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    message={msg}
+                    inlineAgentSteps={showInlineAgent ? agentSteps : undefined}
+                    onAgentApproval={showInlineAgent ? submitAgentApproval : undefined}
+                  />
+                );
+              })}
 
               {/* Thinking Indicator */}
               {state.streamingState === 'thinking' && messages[messages.length - 1]?.role === 'user' && (

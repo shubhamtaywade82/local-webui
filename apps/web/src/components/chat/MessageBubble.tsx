@@ -1,8 +1,90 @@
 import { useState } from 'react';
-import { Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check } from 'lucide-react';
+import {
+  Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check,
+  Activity, Loader2, CheckCircle2, XCircle, Wrench
+} from 'lucide-react';
 import { type Message } from '../../stores/useChatStore';
 import { useEditorStore } from '../../stores/useEditorStore';
 import MarkdownRenderer from './MarkdownRenderer';
+
+export type InlineAgentStep = {
+  id: string;
+  label: string;
+  tool?: string;
+  status: 'running' | 'success' | 'error';
+  pendingApproval?: boolean;
+};
+
+function InlineAgentActivity({
+  steps,
+  onAgentApproval
+}: {
+  steps: InlineAgentStep[];
+  onAgentApproval?: (approved: boolean, stepId: string) => void;
+}) {
+  if (steps.length === 0) return null;
+
+  const statusIcon = (status: InlineAgentStep['status'], animate: boolean) => {
+    if (status === 'success') return <CheckCircle2 size={12} style={{ color: 'var(--success)' }} />;
+    if (status === 'error') return <XCircle size={12} style={{ color: 'var(--error)' }} />;
+    return <Loader2 size={12} className={animate ? 'animate-spin' : ''} style={{ color: 'var(--warning)' }} />;
+  };
+
+  return (
+    <div
+      className="mb-3 rounded-xl overflow-hidden"
+      style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)' }}
+    >
+      <div
+        className="flex items-center gap-1.5 px-3 py-2"
+        style={{ borderBottom: '1px solid var(--border-subtle)' }}
+      >
+        <Activity size={12} style={{ color: 'var(--accent)' }} />
+        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Agent activity
+        </span>
+      </div>
+      <ul className="max-h-40 overflow-y-auto px-2 py-1.5 space-y-1">
+        {steps.map((step) => (
+          <li key={step.id} className="flex items-start gap-2 text-left py-0.5 px-1 rounded-md hover:bg-white/[0.03]">
+            <span className="flex-shrink-0 mt-0.5">{statusIcon(step.status, step.status === 'running')}</span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
+                {step.label}
+              </div>
+              {step.tool && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Wrench size={9} style={{ color: 'var(--text-muted)' }} />
+                  <span className="text-[9px] font-mono" style={{ color: 'var(--accent)' }}>{step.tool}</span>
+                </div>
+              )}
+              {step.pendingApproval && onAgentApproval && (
+                <div className="flex gap-1.5 mt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onAgentApproval(true, step.id)}
+                    className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+                    style={{ background: 'var(--accent)', color: '#fff' }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAgentApproval(false, step.id)}
+                    className="text-[9px] px-1.5 py-0.5 rounded font-medium"
+                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)', color: 'var(--text-secondary)' }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function ThinkingSection({ content }: { content: string }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -48,7 +130,18 @@ function ThinkingSection({ content }: { content: string }) {
   );
 }
 
-export default function MessageBubble({ message }: { message: Message }) {
+interface MessageBubbleProps {
+  message: Message;
+  /** Latest assistant reply: show live agent steps from the active conversation */
+  inlineAgentSteps?: InlineAgentStep[];
+  onAgentApproval?: (approved: boolean, stepId: string) => void;
+}
+
+export default function MessageBubble({
+  message,
+  inlineAgentSteps,
+  onAgentApproval
+}: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const { openFile } = useEditorStore();
   const isUser = message.role === 'user';
@@ -100,7 +193,10 @@ export default function MessageBubble({ message }: { message: Message }) {
             <div className="text-sm whitespace-pre-wrap text-left">{message.content}</div>
           ) : (
             <>
-              {/* Thinking */}
+              {inlineAgentSteps && inlineAgentSteps.length > 0 && (
+                <InlineAgentActivity steps={inlineAgentSteps} onAgentApproval={onAgentApproval} />
+              )}
+
               {message.content.includes('<think>') && (
                 <ThinkingSection content={message.content} />
               )}
