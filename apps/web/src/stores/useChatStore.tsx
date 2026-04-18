@@ -523,14 +523,19 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
               stepId?: string;
               toolName?: string;
               toolInput?: Record<string, unknown>;
+              label?: string;
             };
             const stepId = p.stepId ?? `pending-${Date.now()}`;
+            const label =
+              typeof p.label === 'string' && p.label.trim()
+                ? p.label
+                : `Approve: ${p.toolName ?? 'tool'}?`;
             dispatch({
               type: 'ADD_AGENT_STEP',
               conversationId: convId,
               step: {
                 id: stepId,
-                label: `Approve: ${p.toolName ?? 'tool'}?`,
+                label,
                 tool: p.toolName,
                 status: 'running',
                 pendingApproval: true,

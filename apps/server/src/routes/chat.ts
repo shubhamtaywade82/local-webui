@@ -2,7 +2,13 @@ import path from "path";
 import jwt from "jsonwebtoken";
 import { FastifyInstance } from "fastify";
 import { OllamaClient } from "@workspace/ollama-client";
-import { AgentRuntime, AgentConfig, StepApprovalFn, LoopEvent } from "@workspace/agent-runtime";
+import {
+  AgentRuntime,
+  AgentConfig,
+  StepApprovalFn,
+  LoopEvent,
+  humanizePendingStepLabel
+} from "@workspace/agent-runtime";
 import {
   ToolRegistry,
   ReadFileTool, ListFilesTool, EditFileTool, CreateFileTool, DeleteFileTool,
@@ -158,7 +164,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
           }));
         };
 
-        emitStepEvt('planning', 'Planning agent execution', 'success');
+        emitStepEvt('planning', 'Planning the next moves for your request…', 'success');
 
         const agentConfig: AgentConfig = {
           model: model || 'qwen2.5:0.5b',
@@ -196,8 +202,22 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
                 const token = String((event.payload as any).token ?? '');
                 fullAssistantResponse += token;
                 connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
-              } else if (event.type === 'agent_step' || event.type === 'agent_step_pending') {
+              } else if (event.type === 'agent_step') {
                 connection.socket.send(JSON.stringify({ type: event.type, step: event.payload, conversation_id: currentConversationId }));
+              } else if (event.type === 'agent_step_pending') {
+                const p = event.payload as {
+                  stepId?: string;
+                  toolName?: string;
+                  toolInput?: Record<string, unknown>;
+                };
+                const toolName = String(p.toolName ?? '');
+                const toolInput = (p.toolInput ?? {}) as Record<string, unknown>;
+                const label = humanizePendingStepLabel(toolName, toolInput);
+                connection.socket.send(JSON.stringify({
+                  type: event.type,
+                  step: { ...p, label },
+                  conversation_id: currentConversationId
+                }));
               } else if (event.type === 'tool_call') {
                 const p = event.payload as any;
                 if (savedMessageId) {
@@ -247,7 +267,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
           if (status === 'success') stepsEmitted.add(id);
         };
 
-        emitStep('planning', 'Planning execution strategy', 'success');
+        emitStep('planning', 'Planning how to answer…', 'success');
 
         try {
           await ollama.stream(

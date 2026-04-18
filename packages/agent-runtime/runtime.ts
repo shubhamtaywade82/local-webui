@@ -1,6 +1,7 @@
 import { OllamaClient } from '@workspace/ollama-client';
 import { ToolRegistry } from '@workspace/tools';
 import { AgentConfig, EventEmitter, StepApprovalFn } from './types';
+import { humanizeToolDone, humanizeToolRunning } from './humanizeAgentActivity';
 
 interface ToolCall {
   thought: string;
@@ -82,13 +83,30 @@ export class AgentRuntime {
       const toolCall = parseToolCall(content);
 
       if (!toolCall) {
-        emit({ type: 'agent_step', payload: { id: `step-${iteration}`, label: 'Parse error — treating as finish', status: 'error', iteration } });
+        emit({
+          type: 'agent_step',
+          payload: {
+            id: `step-${iteration}`,
+            label: 'Could not parse the model plan; falling back to a streamed reply.',
+            status: 'error',
+            iteration
+          }
+        });
         await this.streamFinish(messages, emit);
         return;
       }
 
       if (toolCall.tool === 'finish') {
-        emit({ type: 'agent_step', payload: { id: `step-${iteration}`, label: 'Synthesizing answer', tool: 'finish', status: 'success', iteration } });
+        emit({
+          type: 'agent_step',
+          payload: {
+            id: `step-${iteration}`,
+            label: humanizeToolRunning('finish', toolCall.args),
+            tool: 'finish',
+            status: 'success',
+            iteration
+          }
+        });
         const answer = String(toolCall.args.answer ?? '');
         const words = answer.split(' ');
         for (const word of words) {
@@ -102,13 +120,30 @@ export class AgentRuntime {
         emit({ type: 'agent_step_pending', payload: { stepId: `step-${iteration}`, toolName: toolCall.tool, toolInput: toolCall.args } });
         const approved = await onApproval(`step-${iteration}`, toolCall.tool, toolCall.args);
         if (!approved) {
-          emit({ type: 'agent_step', payload: { id: `step-${iteration}`, label: `Tool "${toolCall.tool}" rejected by user`, status: 'error', iteration } });
+          emit({
+            type: 'agent_step',
+            payload: {
+              id: `step-${iteration}`,
+              label: 'This step was skipped because you rejected it.',
+              status: 'error',
+              iteration
+            }
+          });
           emit({ type: 'done', payload: { iteration, aborted: true } });
           return;
         }
       }
 
-      emit({ type: 'agent_step', payload: { id: `step-${iteration}`, label: `Calling ${toolCall.tool}`, tool: toolCall.tool, status: 'running', iteration } });
+      emit({
+        type: 'agent_step',
+        payload: {
+          id: `step-${iteration}`,
+          label: humanizeToolRunning(toolCall.tool, toolCall.args),
+          tool: toolCall.tool,
+          status: 'running',
+          iteration
+        }
+      });
 
       let toolResult: string;
       const toolStart = Date.now();
@@ -124,13 +159,30 @@ export class AgentRuntime {
 
       const duration = Date.now() - toolStart;
       emit({ type: 'tool_call', payload: { tool: toolCall.tool, args: toolCall.args, result: toolResult, duration } });
-      emit({ type: 'agent_step', payload: { id: `step-${iteration}`, label: `${toolCall.tool} completed`, tool: toolCall.tool, status: 'success', duration, iteration } });
+      emit({
+        type: 'agent_step',
+        payload: {
+          id: `step-${iteration}`,
+          label: humanizeToolDone(toolCall.tool, toolCall.args),
+          tool: toolCall.tool,
+          status: 'success',
+          duration,
+          iteration
+        }
+      });
 
       messages.push({ role: 'assistant', content });
       messages.push({ role: 'user', content: `Tool result for ${toolCall.tool}:\n${toolResult}` });
     }
 
-    emit({ type: 'agent_step', payload: { id: 'max-iter', label: `Max iterations (${this.config.maxIterations}) reached`, status: 'error' } });
+    emit({
+      type: 'agent_step',
+      payload: {
+        id: 'max-iter',
+        label: `Stopped after ${this.config.maxIterations} tool rounds to avoid a runaway loop.`,
+        status: 'error'
+      }
+    });
     emit({ type: 'done', payload: { iteration, maxIterationsReached: true } });
   }
 

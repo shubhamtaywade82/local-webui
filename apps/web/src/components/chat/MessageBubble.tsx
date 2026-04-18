@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check,
-  Activity, Loader2, CheckCircle2, XCircle, Wrench
+  Activity, Loader2, CheckCircle2, XCircle
 } from 'lucide-react';
 import { type Message } from '../../stores/useChatStore';
 import { useEditorStore } from '../../stores/useEditorStore';
@@ -41,23 +41,20 @@ function InlineAgentActivity({
       >
         <Activity size={12} style={{ color: 'var(--accent)' }} />
         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-          Agent activity
+          Live progress
         </span>
       </div>
       <ul className="max-h-40 overflow-y-auto px-2 py-1.5 space-y-1">
         {steps.map((step) => (
-          <li key={step.id} className="flex items-start gap-2 text-left py-0.5 px-1 rounded-md hover:bg-white/[0.03]">
+          <li
+            key={step.id}
+            className={`flex items-start gap-2 text-left py-0.5 px-1 rounded-md hover:bg-white/[0.03] ${step.status === 'running' ? 'animate-pulse' : ''}`}
+          >
             <span className="flex-shrink-0 mt-0.5">{statusIcon(step.status, step.status === 'running')}</span>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] leading-snug" style={{ color: 'var(--text-secondary)' }}>
                 {step.label}
               </div>
-              {step.tool && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Wrench size={9} style={{ color: 'var(--text-muted)' }} />
-                  <span className="text-[9px] font-mono" style={{ color: 'var(--accent)' }}>{step.tool}</span>
-                </div>
-              )}
               {step.pendingApproval && onAgentApproval && (
                 <div className="flex gap-1.5 mt-1.5">
                   <button
