@@ -1,74 +1,37 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import {
   FileCode2, X, Plus, Terminal, Settings2,
   ChevronRight, Folder, File, Code2
 } from 'lucide-react';
 import { useEditorStore } from '../../stores/useEditorStore';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { json } from '@codemirror/lang-json';
+import { markdown } from '@codemirror/lang-markdown';
+import { oneDark } from '@codemirror/theme-one-dark';
 
 // ── Simple CodeMirror-like editor (pure textarea with line numbers) ──
 // CodeMirror 6 integration requires separate npm install step.
 // This is a fully functional editor that will be enhanced when CM deps are added.
 
-function LineNumberedEditor({
-  content,
-  language,
-  onChange
-}: {
-  content: string;
-  language: string;
-  onChange: (content: string) => void;
-}) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const lineNumbersRef = useRef<HTMLDivElement>(null);
-  const lines = content.split('\n');
-
-  const handleScroll = () => {
-    if (textareaRef.current && lineNumbersRef.current) {
-      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop;
-    }
-  };
-
-  return (
-    <div className="flex h-full overflow-hidden" style={{ background: '#1a1a2e' }}>
-      {/* Line Numbers */}
-      <div
-        ref={lineNumbersRef}
-        className="flex-shrink-0 overflow-hidden select-none py-3 text-right pr-3 pl-2"
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.75rem',
-          lineHeight: '1.6',
-          color: 'var(--text-muted)',
-          minWidth: '3rem',
-          borderRight: '1px solid var(--border-subtle)',
-          background: 'rgba(0,0,0,0.15)'
-        }}
-      >
-        {lines.map((_, i) => (
-          <div key={i}>{i + 1}</div>
-        ))}
-      </div>
-
-      {/* Editor */}
-      <textarea
-        ref={textareaRef}
-        value={content}
-        onChange={(e) => onChange(e.target.value)}
-        onScroll={handleScroll}
-        spellCheck={false}
-        className="flex-1 resize-none outline-none py-3 px-4"
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '0.8rem',
-          lineHeight: '1.6',
-          color: 'var(--text-primary)',
-          background: 'transparent',
-          tabSize: 2,
-          caretColor: 'var(--accent)'
-        }}
-      />
-    </div>
-  );
+function getLanguageExtension(lang: string) {
+  switch (lang) {
+    case 'javascript':
+    case 'typescript':
+      return [javascript({ typescript: true })];
+    case 'html':
+      return [html()];
+    case 'css':
+      return [css()];
+    case 'json':
+      return [json()];
+    case 'markdown':
+      return [markdown()];
+    default:
+      return [];
+  }
 }
 
 // ── Sample files for demo ──
@@ -245,10 +208,13 @@ export default function CodeEditorPanel() {
         {/* Editor Area */}
         <div className="flex-1 min-w-0">
           {activeFile ? (
-            <LineNumberedEditor
-              content={activeFile.content}
-              language={activeFile.language}
-              onChange={(content) => updateContent(activeFile.id, content)}
+            <CodeMirror
+              value={activeFile.content}
+              height="100%"
+              theme={oneDark}
+              extensions={getLanguageExtension(activeFile.language)}
+              onChange={(value) => updateContent(activeFile.id, value)}
+              className="h-full [&>.cm-editor]:h-full text-[13px] font-mono"
             />
           ) : (
             <div className="flex flex-col items-center justify-center h-full" style={{ color: 'var(--text-muted)' }}>
