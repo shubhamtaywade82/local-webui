@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect } from 'react';
 
 // ── Types ──
 
@@ -28,6 +28,7 @@ interface ChatState {
   activeConversationId: string | null;
   model: string;
   isThinkingEnabled: boolean;
+  systemPrompt: string;
   streamingState: StreamingState;
   availableModels: string[];
   ollamaStatus: 'connected' | 'disconnected' | 'checking';
@@ -38,6 +39,7 @@ interface ChatState {
 type ChatAction =
   | { type: 'SET_MODEL'; model: string }
   | { type: 'TOGGLE_THINKING' }
+  | { type: 'SET_SYSTEM_PROMPT'; prompt: string }
   | { type: 'SET_STREAMING_STATE'; state: StreamingState }
   | { type: 'SET_OLLAMA_STATUS'; status: ChatState['ollamaStatus'] }
   | { type: 'SET_MODELS'; models: string[] }
@@ -60,6 +62,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case 'TOGGLE_THINKING':
       return { ...state, isThinkingEnabled: !state.isThinkingEnabled };
+
+    case 'SET_SYSTEM_PROMPT':
+      return { ...state, systemPrompt: action.prompt };
 
     case 'SET_STREAMING_STATE':
       return { ...state, streamingState: action.state };
@@ -180,11 +185,22 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
 // ── Initial State ──
 
+function getPersistedChatSettings() {
+  try {
+    const raw = localStorage.getItem('ai-workspace-settings');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {};
+}
+
+const savedSettings = getPersistedChatSettings();
+
 const initialState: ChatState = {
   conversations: [],
   activeConversationId: null,
-  model: 'llama3.2:3b',
-  isThinkingEnabled: false,
+  model: savedSettings.model || 'llama3.2:3b',
+  isThinkingEnabled: savedSettings.isThinkingEnabled ?? false,
+  systemPrompt: savedSettings.systemPrompt || '',
   streamingState: 'idle',
   availableModels: [
     'llama3.2:3b',
@@ -220,6 +236,15 @@ export function useChatStore(): ChatContextValue {
 export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Persist settings
+  useEffect(() => {
+    localStorage.setItem('ai-workspace-settings', JSON.stringify({
+      model: state.model,
+      isThinkingEnabled: state.isThinkingEnabled,
+      systemPrompt: state.systemPrompt
+    }));
+  }, [state.model, state.isThinkingEnabled, state.systemPrompt]);
 
   const activeConversation = state.conversations.find(
     c => c.id === state.activeConversationId
@@ -319,7 +344,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           model: state.model,
           messages: contextMessages,
-          thinking: state.isThinkingEnabled
+          thinking: state.isThinkingEnabled,
+          systemPrompt: state.systemPrompt || undefined
         }),
         signal: controller.signal
       });

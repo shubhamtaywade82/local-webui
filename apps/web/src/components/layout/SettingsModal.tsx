@@ -1,0 +1,139 @@
+import { useState } from 'react';
+import { X, Save } from 'lucide-react';
+import { useChatStore } from '../../stores/useChatStore';
+
+interface SettingsModalProps {
+  onClose: () => void;
+}
+
+export default function SettingsModal({ onClose }: SettingsModalProps) {
+  const { state, dispatch } = useChatStore();
+  
+  // Local state for the form so we can cancel without saving
+  const [model, setModel] = useState(state.model);
+  const [isThinkingEnabled, setIsThinkingEnabled] = useState(state.isThinkingEnabled);
+  const [systemPrompt, setSystemPrompt] = useState(state.systemPrompt || '');
+
+  const handleSave = () => {
+    dispatch({ type: 'SET_MODEL', model });
+    
+    // Toggle thinking if it changed from the current state
+    if (state.isThinkingEnabled !== isThinkingEnabled) {
+      dispatch({ type: 'TOGGLE_THINKING' });
+    }
+    
+    dispatch({ type: 'SET_SYSTEM_PROMPT', prompt: systemPrompt });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+      <div 
+        className="w-full max-w-lg rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slide-up"
+        style={{ 
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-subtle)'
+        }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
+            <X size={18} style={{ color: 'var(--text-tertiary)' }} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5 space-y-6 overflow-y-auto max-h-[70vh]">
+          
+          {/* Model Selection */}
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Default Model
+            </label>
+            <select
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)'
+              }}
+            >
+              {state.availableModels.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Thinking Mode */}
+          <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+            <div>
+              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Thinking Mode</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>Enable default step-by-step reasoning for agent responses.</div>
+            </div>
+            <button
+              onClick={() => setIsThinkingEnabled(!isThinkingEnabled)}
+              className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+              style={{
+                background: isThinkingEnabled ? 'var(--accent)' : 'var(--bg-surface)'
+              }}
+            >
+              <span
+                className="absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white transition-transform duration-200"
+                style={{
+                  left: isThinkingEnabled ? '22px' : '2px'
+                }}
+              />
+            </button>
+          </div>
+
+          {/* System Prompt */}
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Custom System Prompt
+            </label>
+            <textarea
+              value={systemPrompt}
+              onChange={(e) => setSystemPrompt(e.target.value)}
+              placeholder="Leave blank to use the default instruction prompts..."
+              rows={5}
+              className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors resize-y"
+              style={{
+                background: 'var(--bg-tertiary)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.85rem'
+              }}
+            />
+            <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              Overrides the default instructions sent to the Ollama model.
+            </p>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end px-5 py-4 border-t gap-3" style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-tertiary)' }}>
+          <button 
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-medium rounded-lg transition-colors hover:bg-white/5"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={handleSave}
+            className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg transition-colors shadow-lg shadow-black/20"
+            style={{ background: 'var(--accent)', color: '#fff' }}
+          >
+            <Save size={14} />
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

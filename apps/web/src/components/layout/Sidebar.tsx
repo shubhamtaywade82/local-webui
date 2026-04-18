@@ -4,6 +4,7 @@ import {
   Trash2, MessageSquare, Zap, Wifi, WifiOff, Loader2
 } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
+import SettingsModal from './SettingsModal';
 
 export default function Sidebar() {
   const {
@@ -214,7 +215,7 @@ export default function Sidebar() {
 
         {/* Settings */}
         <button
-          onClick={() => setShowSettings(!showSettings)}
+          onClick={() => setShowSettings(true)}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs transition-colors hover:bg-white/5"
           style={{ color: 'var(--text-tertiary)' }}
         >
@@ -222,6 +223,10 @@ export default function Sidebar() {
           Settings
         </button>
       </div>
+
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
     </div>
   );
 }

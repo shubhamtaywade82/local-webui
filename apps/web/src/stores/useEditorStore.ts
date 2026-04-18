@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 export interface EditorFile {
   id: string;
@@ -27,11 +27,25 @@ function detectLanguage(filename: string): string {
   return LANG_MAP[ext] ?? 'plaintext';
 }
 
+function getPersistedEditorState(): EditorState | null {
+  try {
+    const raw = localStorage.getItem('ai-workspace-editor');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
 export function useEditorStore() {
-  const [state, setState] = useState<EditorState>({
-    files: [],
-    activeFileId: null
+  const [state, setState] = useState<EditorState>(() => {
+    return getPersistedEditorState() || {
+      files: [],
+      activeFileId: null
+    };
   });
+
+  useEffect(() => {
+    localStorage.setItem('ai-workspace-editor', JSON.stringify(state));
+  }, [state]);
 
   const openFile = useCallback((path: string, content: string) => {
     setState(prev => {

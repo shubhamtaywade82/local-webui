@@ -10,7 +10,7 @@ const knowledge = new KnowledgeEngine(path.join(process.cwd(), "../../options-bu
 
 export default async function routes(app: FastifyInstance) {
   app.post("/", async (req, res) => {
-    const { messages, model, conversation_id } = req.body as { messages: any[]; model: string; conversation_id?: string };
+    const { messages, model, conversation_id, systemPrompt: customSystemPrompt } = req.body as { messages: any[]; model: string; conversation_id?: string; systemPrompt?: string };
     const lastUserMessage = messages[messages.length - 1]?.content || "";
 
     let currentConversationId = conversation_id;
@@ -33,7 +33,8 @@ export default async function routes(app: FastifyInstance) {
     }
 
     // 3. Prepare System Prompt
-    let systemPromptText = `You are a local AI assistant. 
+    const basePrompt = customSystemPrompt?.trim() ? customSystemPrompt : "You are a local AI assistant.";
+    let systemPromptText = `${basePrompt} 
 Use the following context if relevant to the question. 
 If not found in context, answer normally.
 
