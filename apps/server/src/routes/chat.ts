@@ -34,8 +34,9 @@ const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-in-prod';
 
 // Crypto symbols to detect in chat mode for live data injection
 const CRYPTO_SYMBOLS = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE','DOT','AVAX','MATIC','LINK','LTC','UNI','ATOM'];
-const PRICE_KEYWORDS = /\b(price|rate|worth|value|cost|ticker|market|trading at|how much)\b/i;
+const PRICE_KEYWORDS = /\b(price|rate|worth|value|cost|ticker|market|trading at|how much|current)\b/i;
 const TREND_KEYWORDS = /\b(trend|direction|bullish|bearish|moving average|MA|RSI|momentum|support|resistance|breakout|pattern|analysis|chart|signal|going up|going down|oversold|overbought)\b/i;
+const FUTURES_KEYWORDS = /\b(futures|perp|perpetual|swap|contract|long|short|leverage)\b/i;
 
 function computeTrend(candles: any[]): string {
   if (candles.length < 5) return 'insufficient data';
@@ -64,51 +65,92 @@ function computeTrend(candles: any[]): string {
   return `trend=${trendDir} | change=${pctChange}% over ${n} candles | MA10=${ma10.toFixed(2)} MA20=${ma20.toFixed(2)} | RSI14=${rsi}(${rsiLabel}) | last=${last}`;
 }
 
+/** Exact-match ticker lookup: ETHUSDT before ETHFIUSDT, ETHWUSDT etc. */
+function findTicker(tickers: any[], sym: string, suffix: string): any | undefined {
+  const exact = `${sym}${suffix}`;
+  return tickers.find(t => (t.market ?? '').toUpperCase() === exact)
+    ?? tickers.find(t => {
+      const m = (t.market ?? '').toUpperCase();
+      return m.startsWith(sym) && m.endsWith(suffix) && m.length === exact.length;
+    });
+}
+
 async function fetchLiveCryptoContext(message: string): Promise<string> {
   const upper = message.toUpperCase();
   const mentioned = CRYPTO_SYMBOLS.filter(s => upper.includes(s));
   const wantsTrend = TREND_KEYWORDS.test(message);
-  if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend)) return '';
+  const wantsFutures = FUTURES_KEYWORDS.test(message);
+  if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend && !wantsFutures)) return '';
 
   try {
+    const parts: string[] = [];
+    const priceRows: string[] = [];
+
+    // For futures queries: fetch candles from public.coindcx.com for trend + price
+    if (wantsFutures || wantsTrend) {
+      for (const sym of mentioned) {
+        const pair = `B-${sym}_USDT`;
+        try {
+          const now = Date.now();
+          const startTime = now - 50 * 4 * 3_600_000; // 50 x 4h candles
+          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+          if (res.ok) {
+            const candles: any[] = await res.json();
+            if (candles.length > 0) {
+              const sorted = [...candles].sort((a, b) => a.time - b.time);
+              const last = sorted[sorted.length - 1];
+              priceRows.push(`${pair} (futures): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
+              parts.push(`${sym}/USDT FUTURES TREND (4h, ${sorted.length} bars): ${computeTrend(sorted)}`);
+            }
+          }
+        } catch { /* best effort */ }
+      }
+      if (priceRows.length || parts.length) {
+        const out = [`LIVE COINDCX FUTURES (fetched now):\n${priceRows.join('\n')}`];
+        if (parts.length) out.push(`\nTECHNICAL ANALYSIS:\n${parts.join('\n')}`);
+        return out.join('\n');
+      }
+    }
+
+    // Spot fallback: exact-match ETHUSDT not ETHFIUSDT
     const tickerRes = await fetch('https://api.coindcx.com/exchange/ticker', {
       signal: AbortSignal.timeout(5_000),
     });
     if (!tickerRes.ok) return '';
     const tickers: any[] = await tickerRes.json();
 
-    const parts: string[] = [];
-    const priceRows: string[] = [];
-
     for (const sym of mentioned) {
-      const matches = tickers.filter(t => (t.market ?? '').toUpperCase().startsWith(sym));
-      const usdt = matches.find(t => t.market?.endsWith('USDT'));
-      const inr  = matches.find(t => t.market?.endsWith('INR'));
+      const usdt = findTicker(tickers, sym, 'USDT');
+      const inr  = findTicker(tickers, sym, 'INR');
       if (usdt) priceRows.push(`${usdt.market}: $${usdt.last_price} (24h: ${usdt.change_24_hour ?? 'n/a'}% | vol: ${usdt.volume} | high: ${usdt.high} | low: ${usdt.low})`);
       if (inr)  priceRows.push(`${inr.market}: ₹${inr.last_price} (24h: ${inr.change_24_hour ?? 'n/a'}%)`);
 
-      if (wantsTrend && usdt) {
-        // Fetch 4h candles for the futures pair (more liquid)
+    }
+
+    if (!priceRows.length) return '';
+    // Spot path: also compute trend via futures candles when trend was requested
+    const trendParts: string[] = [];
+    if (wantsTrend) {
+      for (const sym of mentioned) {
         const pair = `B-${sym}_USDT`;
         try {
           const now = Date.now();
-          const startTime = now - 30 * 24 * 60 * 60 * 1000; // 30 days
-          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}&endTime=${now}`;
+          const startTime = now - 50 * 4 * 3_600_000;
+          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}`;
           const candleRes = await fetch(url, { signal: AbortSignal.timeout(5_000) });
           if (candleRes.ok) {
             const candles: any[] = await candleRes.json();
             if (candles.length > 0) {
               const sorted = [...candles].sort((a, b) => a.time - b.time);
-              parts.push(`${sym}/USDT TREND (4h, last ${sorted.length} candles): ${computeTrend(sorted)}`);
+              trendParts.push(`${sym}/USDT TREND (4h, ${sorted.length} bars): ${computeTrend(sorted)}`);
             }
           }
-        } catch { /* trend fetch is best-effort */ }
+        } catch { /* best effort */ }
       }
     }
-
-    if (!priceRows.length) return '';
     const result = [`LIVE COINDCX PRICES (fetched now):\n${priceRows.join('\n')}`];
-    if (parts.length) result.push(`\nTECHNICAL ANALYSIS:\n${parts.join('\n')}`);
+    if (trendParts.length) result.push(`\nTECHNICAL ANALYSIS:\n${trendParts.join('\n')}`);
     return result.join('\n');
   } catch { return ''; }
 }

@@ -48,17 +48,18 @@ async function start() {
   }
 }
 
-// Clean Shutdown Logic
+// Clean Shutdown Logic — force exit after 2s so tsx watch can restart quickly
 const shutdown = async (signal: string) => {
   console.log(`\nReceived ${signal}. Shutting down...`);
+  const forceExit = setTimeout(() => process.exit(0), 2_000);
+  forceExit.unref(); // don't keep process alive if close finishes first
   try {
     await app.close();
     console.log("Server closed.");
-    process.exit(0);
   } catch (err) {
     console.error("Error during shutdown:", err);
-    process.exit(1);
   }
+  process.exit(0);
 };
 
 process.on("SIGINT", () => shutdown("SIGINT"));
