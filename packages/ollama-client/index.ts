@@ -14,20 +14,30 @@ export class OllamaClient {
     return res.json();
   }
 
-  async stream(model: string, messages: any[], onToken: (token: string) => void) {
+  async stream(
+    model: string,
+    messages: any[],
+    onToken: (token: string) => void,
+    options?: { think?: boolean }
+  ) {
     console.log(`[OllamaClient] Streaming chat with model ${model}...`);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
     try {
+      const body: Record<string, unknown> = {
+        model,
+        messages,
+        stream: true,
+      };
+      if (options?.think === true) {
+        body.think = true;
+      }
+
       const res = await fetch(`${this.base}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -52,26 +62,38 @@ export class OllamaClient {
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.trim()) continue;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const jsonLine = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
           try {
-            const data = JSON.parse(line);
-            if (data.message?.content) {
-              console.log(`[OllamaClient] Received token: ${data.message.content.length} chars`);
-              onToken(data.message.content);
+            const data = JSON.parse(jsonLine);
+            const msg = data.message;
+            // Native thinking models stream reasoning in `thinking` and the answer in `content`.
+            // Older models / prompt-only "thinking" use `content` only.
+            if (msg?.thinking) {
+              onToken(msg.thinking);
+            }
+            if (msg?.content) {
+              onToken(msg.content);
             }
             if (data.done) {
               console.log("[OllamaClient] Done signal received");
               return; // End the stream early
             }
           } catch (err) {
-            console.warn(`[OllamaClient] Failed to parse line: ${line.slice(0, 50)}...`);
+            console.warn(`[OllamaClient] Failed to parse line: ${jsonLine.slice(0, 80)}...`);
           }
         }
       }
       if (buffer.trim()) {
         try {
-          const data = JSON.parse(buffer);
-          if (data.message?.content) onToken(data.message.content);
+          const tail = buffer.trim().startsWith("data:")
+            ? buffer.trim().slice(5).trim()
+            : buffer.trim();
+          const data = JSON.parse(tail);
+          const msg = data.message;
+          if (msg?.thinking) onToken(msg.thinking);
+          if (msg?.content) onToken(msg.content);
         } catch (err) {
           // ignore
         }

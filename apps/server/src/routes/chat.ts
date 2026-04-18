@@ -250,41 +250,46 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         emitStep('planning', 'Planning execution strategy', 'success');
 
         try {
-          await ollama.stream(model || "qwen2.5:0.5b", finalMessages, (token) => {
-            fullAssistantResponse += token;
-            buffer += token;
+          await ollama.stream(
+            model || "qwen2.5:0.5b",
+            finalMessages,
+            (token) => {
+              fullAssistantResponse += token;
+              buffer += token;
 
-            connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
+              connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
 
-            if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
-              emitStep('thinking', 'Reasoning step-by-step', 'running');
-            }
-            if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
-              emitStep('thinking', 'Reasoning complete', 'success');
-              stepsEmitted.add('thinking-done');
-            }
-
-            if (buffer.includes("<tool>edit_file</tool>")) {
-              if (!stepsEmitted.has('tool-edit-file')) {
-                emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
+              if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
+                emitStep('thinking', 'Reasoning step-by-step', 'running');
               }
-              if (buffer.includes("</content>")) {
-                const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
-                const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
-                if (pathMatch && contentMatch) {
-                  const filePath = pathMatch[1].trim();
-                  const fileContent = contentMatch[1].trim();
-                  emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
-                  connection.socket.send(JSON.stringify({
-                    type: 'tool_call', tool: 'edit_file',
-                    path: filePath, content: fileContent,
-                    conversation_id: currentConversationId
-                  }));
-                  buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
+              if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
+                emitStep('thinking', 'Reasoning complete', 'success');
+                stepsEmitted.add('thinking-done');
+              }
+
+              if (buffer.includes("<tool>edit_file</tool>")) {
+                if (!stepsEmitted.has('tool-edit-file')) {
+                  emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
+                }
+                if (buffer.includes("</content>")) {
+                  const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
+                  const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
+                  if (pathMatch && contentMatch) {
+                    const filePath = pathMatch[1].trim();
+                    const fileContent = contentMatch[1].trim();
+                    emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
+                    connection.socket.send(JSON.stringify({
+                      type: 'tool_call', tool: 'edit_file',
+                      path: filePath, content: fileContent,
+                      conversation_id: currentConversationId
+                    }));
+                    buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
+                  }
                 }
               }
-            }
-          });
+            },
+            { think: !!thinking }
+          );
 
           emitStep('synthesis', 'Finalizing response', 'success');
           connection.socket.send(JSON.stringify({ type: 'done', conversation_id: currentConversationId }));
