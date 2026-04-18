@@ -120,10 +120,29 @@ Artifact.belongsTo(Conversation, { foreignKey: 'conversationId' });
 Message.hasMany(AgentExecution, { foreignKey: 'messageId' });
 AgentExecution.belongsTo(Message, { foreignKey: 'messageId' });
 
-// Sync database
-sequelize.sync()
-  .then(() => console.log('Database synced with Sequelize'))
-  .catch(err => console.error('Database sync failed:', err));
+// Sync schema. `alter` updates existing tables in dev when models gain columns.
+// Production often sets NODE_ENV=production (alter off); `patchConversationUserIdColumn`
+// still adds `user_id` if missing so authenticated GET /conversations does not 500.
+const syncOptions = { alter: process.env.NODE_ENV !== 'production' };
+
+async function patchConversationUserIdColumn(): Promise<void> {
+  try {
+    await sequelize.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL'
+    );
+  } catch {
+    await sequelize.query(
+      'ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID'
+    );
+  }
+}
+
+/** Call once before `listen` so tables exist and legacy DBs get required columns. */
+export async function initDatabase(): Promise<void> {
+  await sequelize.sync(syncOptions);
+  await patchConversationUserIdColumn();
+  console.log('Database synced with Sequelize');
+}
 
 export const db = {
   async createUser(email: string, passwordHash: string) {

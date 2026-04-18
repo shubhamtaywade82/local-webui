@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import multipart from "@fastify/multipart";
+import { initDatabase } from "./services/db";
 import chatRoutes from "./routes/chat";
 import conversationsRoutes from "./routes/conversations";
 import modelsRoutes from "./routes/models";
@@ -15,6 +16,8 @@ const app = Fastify({
 });
 
 async function start() {
+  await initDatabase();
+
   await app.register(cors);
   await app.register(websocket);
   await app.register(multipart);
