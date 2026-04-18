@@ -1,33 +1,110 @@
+export type OllamaRequestHeaders = Record<string, string>;
+export type OllamaProvider = "local" | "cloud";
+
+const LOCAL_OLLAMA_BASE = "http://localhost:11434";
+const CLOUD_OLLAMA_BASE = "https://ollama.com";
+const DEFAULT_STREAM_TIMEOUT_MS = Number(process.env.OLLAMA_STREAM_TIMEOUT_MS) || 120_000;
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function normalizeCloudHost(value: string): string {
+  return trimTrailingSlash(value).replace(/\/api$/, "");
+}
+
+export function resolveOllamaProvider(value: unknown): OllamaProvider {
+  return value === "cloud" ? "cloud" : "local";
+}
+
+export function getOllamaBase(provider: OllamaProvider = "local"): string {
+  if (provider === "cloud") {
+    return normalizeCloudHost(process.env.OLLAMA_URL || CLOUD_OLLAMA_BASE);
+  }
+
+  return LOCAL_OLLAMA_BASE;
+}
+
+export function getOllamaHeaders(
+  provider: OllamaProvider = "local",
+  extraHeaders: OllamaRequestHeaders = {}
+): OllamaRequestHeaders {
+  const headers: OllamaRequestHeaders = { ...extraHeaders };
+  const apiKey = process.env.OLLAMA_API_KEY?.trim();
+
+  if (provider === "cloud" && apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
+}
+
+export function getFallbackChatModel(provider: OllamaProvider = "local"): string {
+  return provider === "cloud" ? "gpt-oss:20b" : "qwen2.5:0.5b";
+}
+
+export function createOllamaClient(provider: OllamaProvider = "local"): OllamaClient {
+  return new OllamaClient(getOllamaBase(provider), getOllamaHeaders(provider));
+}
+
 export class OllamaClient {
-  constructor(private base = "http://localhost:11434") {}
+  constructor(
+    private base = getOllamaBase(),
+    private defaultHeaders: OllamaRequestHeaders = getOllamaHeaders()
+  ) {}
+
+  private jsonHeaders(): OllamaRequestHeaders {
+    return {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+    };
+  }
 
   async chat(model: string, messages: any[]) {
     const res = await fetch(`${this.base}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.jsonHeaders(),
       body: JSON.stringify({
         model,
         messages,
         stream: false
       })
     });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`Ollama Error: ${res.status} ${res.statusText} - ${errorBody}`);
+    }
+
     return res.json();
   }
 
-  async stream(model: string, messages: any[], onToken: (token: string) => void) {
+  async stream(
+    model: string,
+    messages: any[],
+    onToken: (token: string) => void,
+    options?: { think?: boolean }
+  ) {
     console.log(`[OllamaClient] Streaming chat with model ${model}...`);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_STREAM_TIMEOUT_MS);
 
     try {
+      const body: Record<string, unknown> = {
+        model,
+        messages,
+        stream: true,
+      };
+      if (options?.think === true) {
+        body.think = true;
+      } else if (options?.think === false) {
+        body.think = false;
+      }
+
       const res = await fetch(`${this.base}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true
-        }),
+        headers: this.jsonHeaders(),
+        body: JSON.stringify(body),
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -52,26 +129,38 @@ export class OllamaClient {
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.trim()) continue;
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const jsonLine = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
           try {
-            const data = JSON.parse(line);
-            if (data.message?.content) {
-              console.log(`[OllamaClient] Received token: ${data.message.content.length} chars`);
-              onToken(data.message.content);
+            const data = JSON.parse(jsonLine);
+            const msg = data.message;
+            // Native thinking models stream reasoning in `thinking` and the answer in `content`.
+            // Older models / prompt-only "thinking" use `content` only.
+            if (msg?.thinking) {
+              onToken(msg.thinking);
+            }
+            if (msg?.content) {
+              onToken(msg.content);
             }
             if (data.done) {
               console.log("[OllamaClient] Done signal received");
               return; // End the stream early
             }
           } catch (err) {
-            console.warn(`[OllamaClient] Failed to parse line: ${line.slice(0, 50)}...`);
+            console.warn(`[OllamaClient] Failed to parse line: ${jsonLine.slice(0, 80)}...`);
           }
         }
       }
       if (buffer.trim()) {
         try {
-          const data = JSON.parse(buffer);
-          if (data.message?.content) onToken(data.message.content);
+          const tail = buffer.trim().startsWith("data:")
+            ? buffer.trim().slice(5).trim()
+            : buffer.trim();
+          const data = JSON.parse(tail);
+          const msg = data.message;
+          if (msg?.thinking) onToken(msg.thinking);
+          if (msg?.content) onToken(msg.content);
         } catch (err) {
           // ignore
         }
@@ -79,6 +168,7 @@ export class OllamaClient {
       console.log("[OllamaClient] Streaming finished successfully");
     } catch (err) {
       console.error("[OllamaClient] Fetch error:", err);
+      throw err instanceof Error ? err : new Error(String(err));
     }
   }
 }

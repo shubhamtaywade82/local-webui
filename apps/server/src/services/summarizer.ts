@@ -1,8 +1,10 @@
-import { OllamaClient } from "@workspace/ollama-client";
+import { createOllamaClient, OllamaProvider } from "@workspace/ollama-client";
 
-const ollama = new OllamaClient();
-
-export async function summarizeConversation(history: string) {
+export async function summarizeConversation(
+  history: string,
+  model: string,
+  provider: OllamaProvider
+) {
   const prompt = `
 Summarize the following conversation concisely, preserving key facts.
 
@@ -12,7 +14,8 @@ Summary:
 `;
 
   try {
-    const res = await ollama.chat("qwen2.5:0.5b", [
+    const ollama = createOllamaClient(provider);
+    const res = await ollama.chat(model, [
       { role: "user", content: prompt }
     ]);
     return res.message?.content || "";

@@ -1,5 +1,6 @@
 # Project Polaris
-Project Polaris is a top-secret internal initiative at AI Workspace. 
+
+Project Polaris is a top-secret internal initiative at AI Workspace.
 
 - **Code Name**: Polaris-X9
 - **Lead Scientist**: Dr. Aris Thorne

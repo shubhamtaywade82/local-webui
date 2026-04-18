@@ -7,8 +7,10 @@ import { VectorStore } from "./vectorStore";
 import { generateEmbedding } from "./embed";
 import { Pool } from "pg";
 import { retrievePersistent } from "./retrieve";
+import { ingestKnowledge } from "./ingestor";
 
 export class KnowledgeEngine {
+  private roots: string[];
   private directories: DirectoryNode[] = [];
   private documentMap: Map<string, DocumentNode[]> = new Map();
   private chunkMap: Map<string, Chunk[]> = new Map(); // Doc path -> Chunks
@@ -16,7 +18,8 @@ export class KnowledgeEngine {
   private isIndexing: boolean = false;
   private pool: Pool;
 
-  constructor(private root: string) {
+  constructor(roots: string | string[]) {
+    this.roots = Array.isArray(roots) ? roots : [roots];
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/ai_workspace"
     });
@@ -28,15 +31,19 @@ export class KnowledgeEngine {
     this.isIndexing = true;
     
     try {
-      console.log(`[KnowledgeEngine] Refreshing from: ${this.root}`);
-      this.directories = scanKnowledgeTree(this.root);
       this.documentMap.clear();
       this.chunkMap.clear();
       this.vectorStore.clear();
 
-      for (const dir of this.directories) {
-        const docs = scanDocuments(dir.path);
-        this.documentMap.set(dir.path, docs);
+      for (const root of this.roots) {
+        console.log(`[KnowledgeEngine] Refreshing from root: ${root}`);
+        // For documentation hierarchies, we still want the level-1 directory structure
+        const rootDirs = scanKnowledgeTree(root);
+        this.directories = [...this.directories, ...rootDirs];
+
+        // But for file discovery, we use the new recursive scanner on the entire root
+        const docs = scanDocuments(root);
+        this.documentMap.set(root, docs);
 
         for (const doc of docs) {
           try {
@@ -49,16 +56,32 @@ export class KnowledgeEngine {
           }
         }
       }
-      console.log(`[KnowledgeEngine] Refresh complete. Indexed ${this.directories.length} dirs, ${this.getStats().totalDocuments} docs.`);
+      console.log(`[KnowledgeEngine] Refresh complete. Total documents: ${Array.from(this.documentMap.values()).flat().length}`);
     } finally {
       this.isIndexing = false;
     }
   }
 
+  async ingest() {
+    for (const root of this.roots) {
+      console.log(`[KnowledgeEngine] Triggering persistent ingestion for: ${root}`);
+      try {
+        await ingestKnowledge(root, this.pool);
+      } catch (err) {
+        console.error(`[KnowledgeEngine] Ingestion failed for ${root}:`, err);
+      }
+    }
+    await this.refresh(); // Sync in-memory state after all roots are ingested
+  }
+
   /**
    * Powerful Semantic Retrieval (DB-backed)
    */
-  async retrieve(query: string, options: SearchOptions = {}): Promise<ScoredChunk[]> {
+  async retrieve(
+    query: string,
+    options: SearchOptions = {},
+    provider: "local" | "cloud" = "local"
+  ): Promise<ScoredChunk[]> {
     // Try persistent DB retrieval first
     const persistentResults = await retrievePersistent(query, this.pool, options.limit || 5);
     
@@ -86,15 +109,17 @@ export class KnowledgeEngine {
       candidateChunks.push(...(this.chunkMap.get(doc.path) || []));
     }
 
-    const queryEmbedding = await generateEmbedding(query);
     let vectorScores: { chunkId: string; similarity: number }[] | null = null;
     
-    if (queryEmbedding) {
+    if (provider === "local") {
+      const queryEmbedding = await generateEmbedding(query, provider);
+      if (queryEmbedding) {
       const vectorResults = this.vectorStore.search(queryEmbedding, 50);
       vectorScores = vectorResults.map(r => ({
         chunkId: r.chunk.id,
         similarity: r.similarity
       }));
+      }
     }
 
     return hybridSearch(query, candidateChunks, vectorScores, options);
@@ -144,7 +169,12 @@ export class KnowledgeEngine {
   listAll(): string[] {
     return Array.from(this.documentMap.values())
       .flat()
-      .map(doc => doc.path.replace(this.root, "").replace(/^\//, ""));
+      .map(doc => {
+        const matchingRoot = this.roots.find(root => doc.path.startsWith(root));
+        return matchingRoot
+          ? doc.path.replace(matchingRoot, "").replace(/^\//, "")
+          : doc.path;
+      });
   }
 
   getStats() {

@@ -1,77 +1,70 @@
 import fs from "fs";
 import path from "path";
 import { Pool } from "pg";
-import { scanRepo } from "./scanner";
-import { parseMarkdown } from "./parser";
+import { scanDocuments } from "./documentIndex";
 import { chunkMarkdown } from "./chunker";
 import { embed } from "./embedder";
 
-export async function ingestKnowledge(root: string, pool: Pool) {
-  const directories = scanRepo(root);
-  console.log(`Found ${directories.length} directories to ingest.`);
+const SUPPORTED_EXTENSIONS = [".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".css", ".html", ".sql"];
 
-  for (const dir of directories) {
-    console.log(`Ingesting directory: ${dir.name}`);
-    
-    // Level 1: Ingest Directory
-    const dirEmbedding = await embed(dir.summary || dir.name);
+export async function ingestKnowledge(root: string, pool: Pool) {
+  const allDocs = scanDocuments(root);
+  console.log(`[Ingestor] Found ${allDocs.length} documents in root: ${root}`);
+
+  // For the existing schema, we'll treat each file's parent directory as a "knowledge_directory"
+  for (const doc of allDocs) {
+    const parentPath = path.dirname(doc.path);
+    const parentName = path.basename(parentPath);
+
+    // 1. Ensure Directory entry exists
     const dirRes = await pool.query(
       `INSERT INTO knowledge_directories (name, path, summary, embedding)
        VALUES($1, $2, $3, $4)
-       ON CONFLICT (path) DO UPDATE SET summary = EXCLUDED.summary, embedding = EXCLUDED.embedding
+       ON CONFLICT (path) DO UPDATE SET summary = EXCLUDED.summary
        RETURNING id`,
-      [dir.name, dir.path, dir.summary, dirEmbedding]
+      [parentName, parentPath, `Files in ${parentPath}`, null]
     );
 
     const dirId = dirRes.rows[0].id;
-    const files = fs.readdirSync(dir.path);
+    const content = fs.readFileSync(doc.path, "utf8");
+    const isMarkdown = doc.path.endsWith(".md");
+    
+    // 2. Ingest Document
+    const summary = content.slice(0, 500);
+    const docEmbedding = await embed(content.slice(0, 1000));
+    const docRes = await pool.query(
+      `INSERT INTO knowledge_documents (directory_id, title, path, summary, metadata, embedding)
+       VALUES($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (path) DO UPDATE SET 
+          summary = EXCLUDED.summary, 
+          embedding = EXCLUDED.embedding
+       RETURNING id`,
+      [dirId, doc.name, doc.path, summary, JSON.stringify({ ext: path.extname(doc.path) }), docEmbedding]
+    );
 
-    for (const file of files) {
-      if (!file.endsWith(".md") || file === "index.md") continue;
+    const docId = docRes.rows[0].id;
+    await pool.query(`DELETE FROM knowledge_chunks WHERE document_id = $1`, [docId]);
 
-      const fullPath = path.join(dir.path, file);
-      const content = fs.readFileSync(fullPath, "utf8");
-      const { metadata, body } = parseMarkdown(content);
+    // 3. Ingest Chunks
+    // For non-markdown, we can just treat the whole file as one chunk if small, or split by line count
+    const chunks = isMarkdown ? chunkMarkdown(doc.path, content) : [{
+      id: `${doc.path}#0`,
+      path: doc.path,
+      index: 0,
+      content: content,
+      header: doc.name
+    }];
 
-      console.log(`  Processing file: ${file}`);
-
-      // Level 2: Ingest Document
-      const docEmbedding = await embed(body.slice(0, 1000));
-      const docRes = await pool.query(
-        `INSERT INTO knowledge_documents (directory_id, title, path, summary, metadata, embedding)
-         VALUES($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (path) DO UPDATE SET 
-            summary = EXCLUDED.summary, 
-            metadata = EXCLUDED.metadata, 
-            embedding = EXCLUDED.embedding
-         RETURNING id`,
-        [dirId, file, fullPath, body.slice(0, 500), JSON.stringify(metadata), docEmbedding]
-      );
-
-      const docId = docRes.rows[0].id;
-
-      // Clear old chunks for this document to prevent duplicates on update
-      await pool.query(`DELETE FROM knowledge_chunks WHERE document_id = $1`, [docId]);
-
-      // Level 3: Ingest Chunks
-      const chunks = chunkMarkdown(fullPath, body);
-      for (const chunk of chunks) {
-        const chunkEmbedding = await embed(chunk.content);
-        if (chunkEmbedding) {
-          await pool.query(
-            `INSERT INTO knowledge_chunks (document_id, content, chunk_index, token_count, embedding)
-             VALUES($1, $2, $3, $4, $5)`,
-            [
-              docId,
-              chunk.content,
-              chunk.index,
-              Math.ceil(chunk.content.length / 4), // Rough token approximation
-              chunkEmbedding
-            ]
-          );
-        }
+    for (const chunk of chunks) {
+      const chunkEmbedding = await embed(chunk.content);
+      if (chunkEmbedding) {
+        await pool.query(
+          `INSERT INTO knowledge_chunks (document_id, content, chunk_index, token_count, embedding)
+           VALUES($1, $2, $3, $4, $5)`,
+          [docId, chunk.content, chunk.index, Math.ceil(chunk.content.length / 4), chunkEmbedding]
+        );
       }
     }
   }
-  console.log("Ingestion complete.");
+  console.log(`[Ingestor] Ingestion complete for root: ${root}`);
 }

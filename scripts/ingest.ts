@@ -7,7 +7,7 @@ const connectionString = "postgresql://postgres:postgres@localhost:5432/ai_works
 
 async function run() {
   const pool = new Pool({ connectionString });
-  const kbPath = path.join(process.cwd(), "options-buying-kb");
+  const kbPath = path.join(process.cwd(), process.env.KNOWLEDGE_INGEST_PATH || "knowledge");
   
   console.log(`Starting ingestion from: ${kbPath}`);
   
