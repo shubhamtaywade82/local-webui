@@ -288,7 +288,9 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
                 }
               }
             },
-            { think: !!thinking }
+            // UI "Thinking" uses XML in the system prompt only. Native Ollama `think: true` can stall
+            // non–thinking-tuned models (e.g. llama3.2); explicitly turn native thinking off here.
+            thinking ? { think: false } : undefined
           );
 
           emitStep('synthesis', 'Finalizing response', 'success');

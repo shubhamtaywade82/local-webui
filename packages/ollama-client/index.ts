@@ -32,6 +32,8 @@ export class OllamaClient {
       };
       if (options?.think === true) {
         body.think = true;
+      } else if (options?.think === false) {
+        body.think = false;
       }
 
       const res = await fetch(`${this.base}/api/chat`, {

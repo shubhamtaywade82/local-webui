@@ -1,3 +1,5 @@
+const EMBED_TIMEOUT_MS = Number(process.env.KNOWLEDGE_EMBED_TIMEOUT_MS) || 15_000;
+
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   const OLLAMA_BASE = process.env.OLLAMA_URL || "http://localhost:11434";
   try {
@@ -8,6 +10,7 @@ export async function generateEmbedding(text: string): Promise<number[] | null> 
         model: "nomic-embed-text", // Standard embedding model
         prompt: text,
       }),
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
     });
 
     if (!response.ok) {
