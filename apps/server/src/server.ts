@@ -1,12 +1,22 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import chatRoutes from "./routes/chat";
+import conversationsRoutes from "./routes/conversations";
+import modelsRoutes from "./routes/models";
 
 const app = Fastify({ logger: true });
 
 async function start() {
   await app.register(cors);
   await app.register(chatRoutes, { prefix: "/chat" });
+  await app.register(conversationsRoutes, { prefix: "/conversations" });
+  await app.register(modelsRoutes, { prefix: "/models" });
+
+  // Global health check
+  app.get("/health", async () => ({
+    status: "ok",
+    timestamp: new Date().toISOString()
+  }));
 
   try {
     await app.listen({ port: 4000, host: "0.0.0.0" });

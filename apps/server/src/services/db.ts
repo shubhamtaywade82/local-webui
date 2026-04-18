@@ -1,4 +1,4 @@
-import { Sequelize, DataTypes, Model } from 'sequelize';
+import { Sequelize, DataTypes, Model, Op } from 'sequelize';
 
 const sequelize = new Sequelize(process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ai_workspace', {
   logging: false,
@@ -8,6 +8,7 @@ class Conversation extends Model {
   declare id: string;
   declare title: string;
   declare model: string;
+  declare createdAt: Date;
 }
 
 Conversation.init({
@@ -26,6 +27,7 @@ class Message extends Model {
   declare conversationId: string;
   declare role: string;
   declare content: string;
+  declare createdAt: Date;
 }
 
 Message.init({
@@ -56,7 +58,7 @@ export const db = {
     return Message.findAll({
       where: { conversationId },
       order: [['createdAt', 'ASC']],
-      attributes: ['role', 'content']
+      attributes: ['id', 'role', 'content', 'createdAt']
     });
   },
 
@@ -64,5 +66,22 @@ export const db = {
     const id = crypto.randomUUID();
     await Conversation.create({ id, title, model });
     return id;
+  },
+
+  async listConversations() {
+    return Conversation.findAll({
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'title', 'model', 'createdAt'],
+      limit: 50
+    });
+  },
+
+  async deleteConversation(id: string) {
+    await Message.destroy({ where: { conversationId: id } });
+    await Conversation.destroy({ where: { id } });
+  },
+
+  async renameConversation(id: string, title: string) {
+    await Conversation.update({ title }, { where: { id } });
   }
 };

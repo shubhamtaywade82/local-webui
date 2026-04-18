@@ -1,0 +1,95 @@
+import { useState, useCallback } from 'react';
+
+export interface EditorFile {
+  id: string;
+  name: string;
+  path: string;
+  content: string;
+  language: string;
+  isDirty: boolean;
+}
+
+interface EditorState {
+  files: EditorFile[];
+  activeFileId: string | null;
+}
+
+const LANG_MAP: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+  py: 'python', rb: 'ruby', rs: 'rust', go: 'go',
+  html: 'html', css: 'css', scss: 'css', json: 'json',
+  md: 'markdown', sql: 'sql', sh: 'shell', bash: 'shell',
+  yml: 'yaml', yaml: 'yaml', toml: 'toml',
+};
+
+function detectLanguage(filename: string): string {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return LANG_MAP[ext] ?? 'plaintext';
+}
+
+export function useEditorStore() {
+  const [state, setState] = useState<EditorState>({
+    files: [],
+    activeFileId: null
+  });
+
+  const openFile = useCallback((path: string, content: string) => {
+    setState(prev => {
+      const existing = prev.files.find(f => f.path === path);
+      if (existing) {
+        return { ...prev, activeFileId: existing.id };
+      }
+      const name = path.split('/').pop() ?? path;
+      const file: EditorFile = {
+        id: crypto.randomUUID(),
+        name,
+        path,
+        content,
+        language: detectLanguage(name),
+        isDirty: false
+      };
+      return {
+        files: [...prev.files, file],
+        activeFileId: file.id
+      };
+    });
+  }, []);
+
+  const closeFile = useCallback((fileId: string) => {
+    setState(prev => {
+      const remaining = prev.files.filter(f => f.id !== fileId);
+      return {
+        files: remaining,
+        activeFileId:
+          prev.activeFileId === fileId
+            ? (remaining[remaining.length - 1]?.id ?? null)
+            : prev.activeFileId
+      };
+    });
+  }, []);
+
+  const setActiveFile = useCallback((fileId: string) => {
+    setState(prev => ({ ...prev, activeFileId: fileId }));
+  }, []);
+
+  const updateContent = useCallback((fileId: string, content: string) => {
+    setState(prev => ({
+      ...prev,
+      files: prev.files.map(f =>
+        f.id === fileId ? { ...f, content, isDirty: true } : f
+      )
+    }));
+  }, []);
+
+  const activeFile = state.files.find(f => f.id === state.activeFileId) ?? null;
+
+  return {
+    files: state.files,
+    activeFile,
+    activeFileId: state.activeFileId,
+    openFile,
+    closeFile,
+    setActiveFile,
+    updateContent
+  };
+}
