@@ -9,6 +9,7 @@ export * from './code-tools';
 export * from './web-tools';
 export * from './coindcx-tool';
 export * from './coindcx-futures-tool';
+export * from './smc-analysis-tool';
 
 export class ToolRegistry {
   private tools: Map<string, BaseTool> = new Map();

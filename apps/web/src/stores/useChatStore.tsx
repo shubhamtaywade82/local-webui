@@ -64,6 +64,7 @@ type ChatAction =
   | { type: 'DELETE_CONVERSATION'; id: string }
   | { type: 'RENAME_CONVERSATION'; id: string; title: string }
   | { type: 'ADD_MESSAGE'; conversationId: string; message: Message }
+  | { type: 'LOAD_MESSAGES'; conversationId: string; messages: Message[] }
   | { type: 'APPEND_TOKEN'; conversationId: string; messageId: string; token: string }
   | { type: 'SET_MESSAGE_SOURCES'; conversationId: string; messageId: string; sources: string[] }
   | { type: 'FINISH_STREAMING'; conversationId: string; messageId: string }
@@ -220,7 +221,17 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
         ...state,
         conversations: state.conversations.map(c =>
           c.id === action.conversationId
-            ? { ...c, messages: [...c.messages, action.message] }
+            ? { ...c, messages: [...(c.messages || []), action.message] }
+            : c
+        )
+      };
+
+    case 'LOAD_MESSAGES':
+      return {
+        ...state,
+        conversations: state.conversations.map(c =>
+          c.id === action.conversationId
+            ? { ...c, messages: action.messages }
             : c
         )
       };
@@ -372,6 +383,7 @@ interface ChatContextValue {
   checkOllamaStatus: (provider?: ProviderMode) => Promise<void>;
   fetchModels: (provider?: ProviderMode) => Promise<void>;
   loadConversations: () => Promise<void>;
+  selectConversation: (id: string) => Promise<void>;
   deleteConversation: (id: string) => Promise<void>;
   /** Agent step mode: send approve/reject on the active chat WebSocket */
   submitAgentApproval: (approved: boolean, stepId: string) => void;
@@ -475,10 +487,41 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
             agentSteps: []
           }));
           dispatch({ type: 'SET_CONVERSATIONS', conversations: convs });
+
+          // Auto-select latest if nothing active yet
+          if (convs.length > 0 && !state.activeConversationId) {
+            selectConversation(convs[0].id);
+          }
         }
       }
     } catch {}
-  }, []);
+  }, [state.activeConversationId]);
+
+  const selectConversation = useCallback(async (id: string) => {
+    dispatch({ type: 'SET_ACTIVE_CONVERSATION', id });
+    
+    // Check if we already have messages loaded
+    const conv = state.conversations.find(c => c.id === id);
+    if (!conv || (conv.messages && conv.messages.length > 0)) return;
+
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, { 
+        headers: getAuthHeaders() 
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const mappedMessages: Message[] = (data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.createdAt).getTime()
+        }));
+        dispatch({ type: 'LOAD_MESSAGES', conversationId: id, messages: mappedMessages });
+      }
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+    }
+  }, [state.conversations]);
 
   const deleteConversation = useCallback(async (id: string) => {
     try {
@@ -729,6 +772,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     checkOllamaStatus,
     fetchModels,
     loadConversations,
+    selectConversation,
     deleteConversation,
     submitAgentApproval
   };

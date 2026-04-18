@@ -74,14 +74,20 @@ function formatFuturesPrices(data: unknown, symbol?: string): string {
 }
 
 function formatOrderbook(data: any, pair: string): string {
-  const bids = (data.bids ?? []).slice(0, 5).map((b: any) => `  bid ${b[0]} qty ${b[1]}`).join('\n');
-  const asks = (data.asks ?? []).slice(0, 5).map((a: any) => `  ask ${a[0]} qty ${a[1]}`).join('\n');
-  return `Orderbook ${pair} (top 5):\nBids:\n${bids}\nAsks:\n${asks}`;
+  // bids/asks are objects: { "price": "qty", ... } — convert to sorted arrays
+  const toRows = (side: Record<string, string>, dir: 'bid' | 'ask', n = 5) =>
+    Object.entries(side ?? {})
+      .sort((a, b) => dir === 'bid' ? parseFloat(b[0]) - parseFloat(a[0]) : parseFloat(a[0]) - parseFloat(b[0]))
+      .slice(0, n)
+      .map(([price, qty]) => `  ${dir} ${price} qty ${qty}`)
+      .join('\n');
+  return `Orderbook ${pair} (top 5 each side):\nBids:\n${toRows(data.bids, 'bid')}\nAsks:\n${toRows(data.asks, 'ask')}`;
 }
 
 function formatTrades(data: unknown[], pair: string): string {
   const rows = (data as any[]).slice(0, 10).map(t =>
-    `  ${t.time_epoch ? new Date(t.time_epoch).toISOString() : '?'} ${t.m ? 'BUY' : 'SELL'} price=${t.p ?? t.price} qty=${t.q ?? t.quantity}`
+    // API returns: p=price, q=qty, T=timestamp(ms), m=buyer-is-maker
+    `  ${t.T ? new Date(t.T).toISOString() : '?'} ${t.m ? 'SELL' : 'BUY'} price=${t.p} qty=${t.q}`
   );
   return `Last ${rows.length} trades for ${pair}:\n${rows.join('\n')}`;
 }
@@ -163,22 +169,22 @@ export class CoinDCXTool extends BaseTool {
         }
 
         case 'orderbook': {
-          if (!symbol) return 'Error: symbol required for orderbook (e.g. BTCINR or B-BTC_USDT)';
-          const data = await apiFetch(API_BASE, '/market_data/orderbook', { pair: symbol });
+          if (!symbol) return 'Error: symbol required for orderbook (e.g. B-BTC_USDT)';
+          const data = await apiFetch(PUBLIC_BASE, '/market_data/orderbook', { pair: symbol });
           return formatOrderbook(data, symbol);
         }
 
         case 'trade_history': {
-          if (!symbol) return 'Error: symbol required for trade_history (e.g. BTCINR)';
-          const data = await apiFetch(API_BASE, '/market_data/trade_history', { pair: symbol, limit }) as unknown[];
+          if (!symbol) return 'Error: symbol required for trade_history (e.g. B-BTC_USDT)';
+          const data = await apiFetch(PUBLIC_BASE, '/market_data/trade_history', { pair: symbol, limit }) as unknown[];
           return formatTrades(data, symbol);
         }
 
         case 'candles': {
-          if (!symbol) return 'Error: symbol required for candles (e.g. BTCINR)';
+          if (!symbol) return 'Error: symbol required for candles (e.g. B-BTC_USDT)';
           const now = Date.now();
           const startTime = String(now - 7 * 24 * 60 * 60 * 1000);
-          const data = await apiFetch(API_BASE, '/market_data/candles', {
+          const data = await apiFetch(PUBLIC_BASE, '/market_data/candles', {
             pair: symbol, interval, startTime, endTime: String(now), limit,
           }) as unknown[];
           return formatCandles(data, symbol, interval);

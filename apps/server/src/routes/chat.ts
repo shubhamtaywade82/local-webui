@@ -23,6 +23,7 @@ import {
   WebSearchTool, FetchUrlTool,
   CoinDCXTool,
   CoinDCXFuturesTool,
+  SmcAnalysisTool,
 } from "@workspace/tools";
 import { db } from "../services/db";
 import { summarizeConversation } from "../services/summarizer";
@@ -30,6 +31,87 @@ import { knowledgeEngine } from "../services/knowledgeSingleton";
 
 const knowledge = knowledgeEngine;
 const JWT_SECRET = process.env.JWT_SECRET || 'local-dev-secret-change-in-prod';
+
+// Crypto symbols to detect in chat mode for live data injection
+const CRYPTO_SYMBOLS = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE','DOT','AVAX','MATIC','LINK','LTC','UNI','ATOM'];
+const PRICE_KEYWORDS = /\b(price|rate|worth|value|cost|ticker|market|trading at|how much)\b/i;
+const TREND_KEYWORDS = /\b(trend|direction|bullish|bearish|moving average|MA|RSI|momentum|support|resistance|breakout|pattern|analysis|chart|signal|going up|going down|oversold|overbought)\b/i;
+
+function computeTrend(candles: any[]): string {
+  if (candles.length < 5) return 'insufficient data';
+  const closes = candles.map(c => parseFloat(c.close));
+  const n = closes.length;
+  const ma10 = closes.slice(-10).reduce((a, b) => a + b, 0) / Math.min(10, n);
+  const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / Math.min(20, n);
+  const last = closes[n - 1];
+  const first = closes[0];
+  const pctChange = ((last - first) / first * 100).toFixed(2);
+
+  // RSI-14
+  const gains: number[] = [], losses: number[] = [];
+  for (let i = 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    gains.push(diff > 0 ? diff : 0);
+    losses.push(diff < 0 ? -diff : 0);
+  }
+  const avgGain = gains.slice(-14).reduce((a, b) => a + b, 0) / 14;
+  const avgLoss = losses.slice(-14).reduce((a, b) => a + b, 0) / 14;
+  const rsi = avgLoss === 0 ? 100 : Math.round(100 - (100 / (1 + avgGain / avgLoss)));
+
+  const trendDir = ma10 > ma20 ? 'BULLISH (MA10 > MA20)' : ma10 < ma20 ? 'BEARISH (MA10 < MA20)' : 'NEUTRAL';
+  const rsiLabel = rsi > 70 ? 'overbought' : rsi < 30 ? 'oversold' : 'neutral';
+
+  return `trend=${trendDir} | change=${pctChange}% over ${n} candles | MA10=${ma10.toFixed(2)} MA20=${ma20.toFixed(2)} | RSI14=${rsi}(${rsiLabel}) | last=${last}`;
+}
+
+async function fetchLiveCryptoContext(message: string): Promise<string> {
+  const upper = message.toUpperCase();
+  const mentioned = CRYPTO_SYMBOLS.filter(s => upper.includes(s));
+  const wantsTrend = TREND_KEYWORDS.test(message);
+  if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend)) return '';
+
+  try {
+    const tickerRes = await fetch('https://api.coindcx.com/exchange/ticker', {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!tickerRes.ok) return '';
+    const tickers: any[] = await tickerRes.json();
+
+    const parts: string[] = [];
+    const priceRows: string[] = [];
+
+    for (const sym of mentioned) {
+      const matches = tickers.filter(t => (t.market ?? '').toUpperCase().startsWith(sym));
+      const usdt = matches.find(t => t.market?.endsWith('USDT'));
+      const inr  = matches.find(t => t.market?.endsWith('INR'));
+      if (usdt) priceRows.push(`${usdt.market}: $${usdt.last_price} (24h: ${usdt.change_24_hour ?? 'n/a'}% | vol: ${usdt.volume} | high: ${usdt.high} | low: ${usdt.low})`);
+      if (inr)  priceRows.push(`${inr.market}: ₹${inr.last_price} (24h: ${inr.change_24_hour ?? 'n/a'}%)`);
+
+      if (wantsTrend && usdt) {
+        // Fetch 4h candles for the futures pair (more liquid)
+        const pair = `B-${sym}_USDT`;
+        try {
+          const now = Date.now();
+          const startTime = now - 30 * 24 * 60 * 60 * 1000; // 30 days
+          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}&endTime=${now}`;
+          const candleRes = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+          if (candleRes.ok) {
+            const candles: any[] = await candleRes.json();
+            if (candles.length > 0) {
+              const sorted = [...candles].sort((a, b) => a.time - b.time);
+              parts.push(`${sym}/USDT TREND (4h, last ${sorted.length} candles): ${computeTrend(sorted)}`);
+            }
+          }
+        } catch { /* trend fetch is best-effort */ }
+      }
+    }
+
+    if (!priceRows.length) return '';
+    const result = [`LIVE COINDCX PRICES (fetched now):\n${priceRows.join('\n')}`];
+    if (parts.length) result.push(`\nTECHNICAL ANALYSIS:\n${parts.join('\n')}`);
+    return result.join('\n');
+  } catch { return ''; }
+}
 
 // Workspace root for file tools: repo root (two levels up from apps/server/src/routes)
 const WORKSPACE_ROOT = process.env.WORKSPACE_ROOT || path.resolve(__dirname, '../../../..');
@@ -50,6 +132,7 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new FetchUrlTool());
   registry.register(new CoinDCXTool());
   registry.register(new CoinDCXFuturesTool());
+  registry.register(new SmcAnalysisTool());
   return registry;
 }
 
@@ -113,7 +196,10 @@ function handleWs(connection: any, req: any) {
 
       // 1. Retrieve Knowledge (RAG) — filter out low-relevance results (cosine < 0.35)
       const MIN_RAG_SCORE = 0.35;
-      const allContextDocs = await knowledge.retrieve(lastUserMessage, {}, requestedProvider);
+      const [allContextDocs, liveCryptoContext] = await Promise.all([
+        knowledge.retrieve(lastUserMessage, {}, requestedProvider),
+        fetchLiveCryptoContext(lastUserMessage),
+      ]);
       const contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
@@ -147,6 +233,7 @@ ${historyContext}
 
 CONTEXT FROM DOCUMENTS:
 ${contextString || "No specific content match found in local knowledge."}
+${liveCryptoContext ? `\n${liveCryptoContext}` : ''}
 
 TOOL USAGE:
 You can actively modify files in the user's Editor using the edit_file tool.

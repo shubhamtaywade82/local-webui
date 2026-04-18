@@ -12,7 +12,7 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatPanel() {
-  const { state, activeConversation, sendMessage, createNewConversation, submitAgentApproval } = useChatStore();
+  const { state, activeConversation, sendMessage, createNewConversation } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const messages = activeConversation?.messages ?? [];
   const isStreaming = state.streamingState === 'streaming' || state.streamingState === 'thinking';
@@ -93,17 +93,11 @@ export default function ChatPanel() {
           ) : (
             /* ── Message List ── */
             <div className="space-y-4 pb-4">
-              {messages.map((msg, idx) => {
-                const isLast = idx === messages.length - 1;
-                const agentSteps = activeConversation?.agentSteps ?? [];
-                const showInlineAgent =
-                  msg.role === 'assistant' && isLast && agentSteps.length > 0;
+              {messages.map((msg) => {
                 return (
                   <MessageBubble
                     key={msg.id}
                     message={msg}
-                    inlineAgentSteps={showInlineAgent ? agentSteps : undefined}
-                    onAgentApproval={showInlineAgent ? submitAgentApproval : undefined}
                   />
                 );
               })}

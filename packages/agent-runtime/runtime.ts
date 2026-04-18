@@ -35,6 +35,12 @@ Rules:
 - If a tool returns no match, try alternative symbols/actions before concluding something doesn't exist
 - The finish answer field supports markdown — use headers, lists, tables as appropriate
 
+SMC analysis tool routing:
+- For trend, structure, order blocks, FVGs, liquidity, trade setups: use "smc_analysis" tool
+- Always use full_analysis first for a new symbol — it runs HTF + LTF together
+- For entry setups use action=setup with htf=1h ltf=15m
+- smc_analysis fetches its own candles from CoinDCX futures (B-XXX_USDT format); just pass symbol=BTC etc.
+
 CoinDCX tool routing (STRICT):
 - For price/market data queries (price, ticker, orderbook, candles, trade history): ALWAYS use the "coindcx" tool (public, no auth needed)
 - For trading actions (orders, positions, leverage, margin): use "coindcx_futures" tool (requires API keys)

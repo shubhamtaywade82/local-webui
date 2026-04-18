@@ -15,6 +15,7 @@ export default function Sidebar() {
     checkOllamaStatus,
     fetchModels,
     loadConversations,
+    selectConversation,
     deleteConversation
   } = useChatStore();
   const { auth, logout } = useAuthStore();
@@ -163,7 +164,7 @@ export default function Sidebar() {
             return (
               <div
                 key={conv.id}
-                onClick={() => dispatch({ type: 'SET_ACTIVE_CONVERSATION', id: conv.id })}
+                onClick={() => selectConversation(conv.id)}
                 className="w-full text-left px-3 py-2 rounded-lg transition-colors group relative cursor-pointer"
                 style={{
                   background: isActive ? 'var(--accent-muted)' : 'transparent',
