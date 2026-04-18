@@ -166,6 +166,42 @@ export async function fetchFuturesInstrumentDetails(
   return res.json();
 }
 
+/** Last traded / mark from public futures RT snapshot (`market_data/v3/current_prices/futures/rt`). */
+export interface FuturesRtSnapshot {
+  pair: string;
+  last: number;
+  mark: number;
+}
+
+/**
+ * Reads `prices[pair]` from GET /market_data/v3/current_prices/futures/rt (same source as chat live context).
+ * `pair` must be CoinDCX futures form `B-BTC_USDT`.
+ */
+export async function fetchFuturesRtSnapshot(
+  pair: string,
+  options?: { signal?: AbortSignal }
+): Promise<FuturesRtSnapshot | null> {
+  const signal = options?.signal ?? AbortSignal.timeout(8_000);
+  const pairNorm = pair.trim();
+  try {
+    const res = await fetch(`${PUBLIC_BASE}/market_data/v3/current_prices/futures/rt`, { signal });
+    if (!res.ok) return null;
+    const data = (await res.json()) as Record<string, unknown>;
+    const prices = data?.prices;
+    if (!prices || typeof prices !== 'object') return null;
+    const row = (prices as Record<string, Record<string, unknown>>)[pairNorm];
+    if (!row || typeof row !== 'object') return null;
+    const lastRaw = row.ls ?? row.last_price;
+    const markRaw = row.mp ?? row.mark_price;
+    const last = parseFloat(String(lastRaw));
+    const mark = parseFloat(String(markRaw));
+    if (!Number.isFinite(last) || !Number.isFinite(mark)) return null;
+    return { pair: pairNorm, last, mark };
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchFuturesPublicTrades(
   pair: string,
   options?: { signal?: AbortSignal }

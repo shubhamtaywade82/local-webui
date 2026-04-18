@@ -285,22 +285,69 @@ function KnowledgeBaseView() {
 function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
   const [hoveredAction, setHoveredAction] = useState<number | null>(null);
   const [pulse, setPulse] = useState<any[]>([]);
+  const [lastPrices, setLastPrices] = useState<Record<string, number>>({});
+  const [flashStates, setFlashStates] = useState<Record<string, 'up' | 'down' | null>>({});
 
   useEffect(() => {
+    // Initial fetch
     const fetchPulse = async () => {
       try {
         const res = await fetch('/api/market/pulse');
         if (res.ok) {
           const data = await res.json();
           setPulse(data.pulse);
+          const nextPrices: Record<string, number> = {};
+          data.pulse.forEach((p: any) => {
+            nextPrices[p.sym] = parseFloat(p.price.replace(/,/g, ''));
+          });
+          setLastPrices(nextPrices);
         }
       } catch (err) {
         console.error('Pulse fetch failed:', err);
       }
     };
     fetchPulse();
-    const interval = setInterval(fetchPulse, 30000); // 30s refresh
-    return () => clearInterval(interval);
+
+    // WebSocket link
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/market/ws`);
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'update') {
+          const update = msg.data;
+          const currentPrice = parseFloat(update.price.replace(/,/g, ''));
+          
+          setPulse(prev => {
+            const next = [...prev];
+            const idx = next.findIndex(p => p.sym === update.sym);
+            if (idx >= 0) {
+              next[idx] = { ...next[idx], ...update };
+            } else {
+              next.push(update);
+            }
+            return next;
+          });
+
+          // Trigger Flash Animation
+          setLastPrices(prev => {
+            const prevPrice = prev[update.sym] || 0;
+            if (currentPrice !== prevPrice) {
+              setFlashStates(f => ({ ...f, [update.sym]: currentPrice > prevPrice ? 'up' : 'down' }));
+              setTimeout(() => {
+                setFlashStates(f => ({ ...f, [update.sym]: null }));
+              }, 600);
+            }
+            return { ...prev, [update.sym]: currentPrice };
+          });
+        }
+      } catch (err) {
+        console.error('WS Pulse error:', err);
+      }
+    };
+
+    return () => ws.close();
   }, []);
 
   const marketPulse = pulse.length > 0 ? pulse : [
@@ -373,27 +420,34 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
         </div>
         
         <div className="grid grid-cols-3 gap-2">
-          {marketPulse.map((item, i) => (
-            <div 
-              key={i} 
-              className="glass-card p-2.5 border border-[var(--border-subtle)] hover:border-[var(--border-accent)] transition-all cursor-default"
-            >
-              <div className="flex justify-between items-start mb-1">
-                <span className="text-xs font-bold text-[var(--text-primary)]">{item.sym}</span>
-                <span className="text-[9px] font-mono" style={{ color: item.color }}>{item.change}</span>
+          {marketPulse.map((item, i) => {
+            const flash = flashStates[item.sym];
+            const flashClass = flash === 'up' ? 'animate-pulse-green' : flash === 'down' ? 'animate-pulse-red' : '';
+            
+            return (
+              <div 
+                key={i} 
+                className="glass-card p-2.5 border border-[var(--border-subtle)] hover:border-[var(--border-accent)] transition-all cursor-default"
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <span className="text-xs font-bold text-[var(--text-primary)]">{item.sym}</span>
+                  <span className="text-[9px] font-mono" style={{ color: item.color }}>{item.change}</span>
+                </div>
+                <div className={`text-[10px] font-medium mb-1 transition-all ${flashClass}`} style={{ color: flash ? undefined : 'var(--text-secondary)' }}>
+                  ${item.price}
+                </div>
+                <div className="h-0.5 w-full bg-white/[0.05] rounded-full overflow-hidden">
+                  <div 
+                    className="h-full rounded-full transition-all duration-1000"
+                    style={{ 
+                      width: item.trend === 'Neutral' ? '50%' : item.trend.includes('Strong') ? '90%' : '75%',
+                      backgroundColor: item.color 
+                    }}
+                  />
+                </div>
               </div>
-              <div className="text-[10px] text-[var(--text-secondary)] font-medium mb-1">${item.price}</div>
-              <div className="h-0.5 w-full bg-white/[0.05] rounded-full overflow-hidden">
-                <div 
-                  className="h-full rounded-full transition-all duration-1000"
-                  style={{ 
-                    width: item.trend === 'Neutral' ? '50%' : item.trend.includes('Strong') ? '90%' : '75%',
-                    backgroundColor: item.color 
-                  }}
-                />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

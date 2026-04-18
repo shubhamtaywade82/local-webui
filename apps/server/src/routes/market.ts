@@ -1,13 +1,15 @@
 import { FastifyInstance } from "fastify";
+import { marketStream } from "../services/marketStream";
 
 export default async function routes(app: FastifyInstance) {
+  // Existing REST endpoint for initial load
   app.get("/pulse", async () => {
     try {
-      const tickerRes = await fetch('https://api.coindcx.com/exchange/ticker', {
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!tickerRes.ok) throw new Error("Failed to fetch CoinDCX ticker");
-      
+      // Return latest prices from stream if available, else fetch fresh
+      const latest = marketStream.getLatest();
+      if (latest.length > 0) return { pulse: latest };
+
+      const tickerRes = await fetch('https://api.coindcx.com/exchange/ticker');
       const tickers: any[] = await tickerRes.json();
       const targets = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
       
@@ -21,19 +23,22 @@ export default async function routes(app: FastifyInstance) {
           color: t.change_24_hour > 0 ? 'var(--success)' : t.change_24_hour < -2 ? 'var(--error)' : 'var(--warning)'
         }));
 
-      return {
-        timestamp: new Date().toISOString(),
-        pulse: results
-      };
-    } catch (err) {
-      return {
-        error: "Pulse data unavailable",
-        pulse: [
-          { sym: 'BTC', price: '--', change: '0%', trend: 'Unknown', color: 'var(--text-muted)' },
-          { sym: 'ETH', price: '--', change: '0%', trend: 'Unknown', color: 'var(--text-muted)' },
-          { sym: 'SOL', price: '--', change: '0%', trend: 'Unknown', color: 'var(--text-muted)' },
-        ]
-      };
+      return { pulse: results };
+    } catch {
+      return { pulse: [] };
     }
+  });
+
+  // New WebSocket Relay
+  app.get("/ws", { websocket: true }, (connection, req) => {
+    const onUpdate = (update: any) => {
+      connection.socket.send(JSON.stringify({ type: "update", data: update }));
+    };
+
+    marketStream.on("update", onUpdate);
+
+    connection.socket.on("close", () => {
+      marketStream.off("update", onUpdate);
+    });
   });
 }

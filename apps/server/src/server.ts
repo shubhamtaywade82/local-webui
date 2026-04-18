@@ -14,6 +14,8 @@ import kbRoutes from "./routes/kb";
 import filesRoutes from "./routes/files";
 import authRoutes from "./routes/auth";
 import marketRoutes from "./routes/market";
+import { marketStream } from "./services/marketStream";
+import { startFuturesAutomation, stopFuturesAutomation } from "./services/futuresAutomation";
 
 const app = Fastify({ 
   logger: true,
@@ -45,6 +47,8 @@ async function start() {
   try {
     await app.listen({ port, host: "0.0.0.0" });
     console.log(`Server listening on http://localhost:${port}`);
+    marketStream.start();
+    startFuturesAutomation(app.log);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
@@ -57,6 +61,7 @@ const shutdown = async (signal: string) => {
   const forceExit = setTimeout(() => process.exit(0), 2_000);
   forceExit.unref(); // don't keep process alive if close finishes first
   try {
+    stopFuturesAutomation();
     await app.close();
     console.log("Server closed.");
   } catch (err) {

@@ -202,6 +202,24 @@ body {
   40% { transform: scale(1); opacity: 1; }
 }
 
+@keyframes pulse-flash-green {
+  0% { color: var(--success); text-shadow: 0 0 12px var(--success); transform: scale(1.02); }
+  100% { color: var(--text-primary); text-shadow: none; transform: scale(1); }
+}
+
+@keyframes pulse-flash-red {
+  0% { color: var(--error); text-shadow: 0 0 12px var(--error); transform: scale(1.02); }
+  100% { color: var(--text-primary); text-shadow: none; transform: scale(1); }
+}
+
+.animate-pulse-green {
+  animation: pulse-flash-green 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.animate-pulse-red {
+  animation: pulse-flash-red 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

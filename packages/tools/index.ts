@@ -11,7 +11,10 @@ export * from './coindcx-tool';
 export * from './coindcx-futures-tool';
 export * from './coindcx-public';
 export * from './smc-analysis-tool';
+export * from './smc-engine';
+export * from './smc-automation-decision';
 export * from './telegram-tool';
+export * from './telegram-send';
 
 export class ToolRegistry {
   private tools: Map<string, BaseTool> = new Map();
