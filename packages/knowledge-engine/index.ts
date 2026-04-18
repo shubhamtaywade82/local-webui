@@ -163,7 +163,12 @@ export class KnowledgeEngine {
   listAll(): string[] {
     return Array.from(this.documentMap.values())
       .flat()
-      .map(doc => doc.path.replace(this.root, "").replace(/^\//, ""));
+      .map(doc => {
+        const matchingRoot = this.roots.find(root => doc.path.startsWith(root));
+        return matchingRoot
+          ? doc.path.replace(matchingRoot, "").replace(/^\//, "")
+          : doc.path;
+      });
   }
 
   getStats() {

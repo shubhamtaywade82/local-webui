@@ -1,12 +1,16 @@
 import { FastifyInstance } from "fastify";
+import { getOllamaBase, getOllamaHeaders } from "@workspace/ollama-client";
 
-const OLLAMA_BASE = process.env.OLLAMA_URL || "http://localhost:11434";
+const OLLAMA_BASE = getOllamaBase();
+const OLLAMA_HEADERS = getOllamaHeaders();
 
 export default async function routes(app: FastifyInstance) {
   // List available Ollama models
   app.get("/", async (_req, res) => {
     try {
-      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`);
+      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`, {
+        headers: OLLAMA_HEADERS
+      });
       if (!ollamaRes.ok) {
         res.code(502).send({ error: "Ollama unreachable", status: ollamaRes.status });
         return;
@@ -29,7 +33,9 @@ export default async function routes(app: FastifyInstance) {
   // Health check for Ollama
   app.get("/health", async (_req, res) => {
     try {
-      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`);
+      const ollamaRes = await fetch(`${OLLAMA_BASE}/api/tags`, {
+        headers: OLLAMA_HEADERS
+      });
       return {
         ollama: ollamaRes.ok ? "connected" : "error",
         timestamp: new Date().toISOString()

@@ -1,4 +1,4 @@
-import { OllamaClient } from "@workspace/ollama-client";
+import { OllamaClient, getDefaultSummaryModel } from "@workspace/ollama-client";
 
 const ollama = new OllamaClient();
 
@@ -12,7 +12,7 @@ Summary:
 `;
 
   try {
-    const res = await ollama.chat("qwen2.5:0.5b", [
+    const res = await ollama.chat(getDefaultSummaryModel(), [
       { role: "user", content: prompt }
     ]);
     return res.message?.content || "";

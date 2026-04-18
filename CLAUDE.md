@@ -25,7 +25,11 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 ## Env
 
 - `DATABASE_URL` — Postgres (Sequelize + knowledge-engine pool). Default user/db in `apps/server/src/services/db.ts`.
-- `OLLAMA_URL` — only affects **`/models`** proxy in server, not `OllamaClient` (still default `http://localhost:11434`).
+- `OLLAMA_URL` — Ollama API base URL for chat, models, and embeddings. Defaults to `https://ollama.com` when `OLLAMA_API_KEY` is set, otherwise `http://localhost:11434`.
+- `OLLAMA_API_KEY` — bearer token for direct access to `https://ollama.com/api`.
+- `OLLAMA_MODEL` — default chat model when the client does not send one.
+- `OLLAMA_SUMMARY_MODEL` — optional override for conversation summarization.
+- `OLLAMA_EMBED_MODEL` — embedding model for RAG (`embeddinggemma` is a sensible cloud default).
 - `KNOWLEDGE_ROOT` — RAG root relative to `apps/server` cwd (default `../../knowledge`).
 - `KNOWLEDGE_INGEST_PATH` — folder name under repo root for `scripts/ingest.ts` (default `knowledge`).
 
@@ -40,5 +44,5 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 ## Gotchas
 
 - Knowledge path defaults to `../../knowledge` from `apps/server` cwd; use `KNOWLEDGE_ROOT=../../options-buying-kb` for the legacy-only tree.
-- Embeddings: `packages/knowledge-engine/embed.ts` uses a fixed base URL (see file); mismatch with Ollama disables vector leg of retrieval.
+- For direct Ollama Cloud API, set `OLLAMA_API_KEY` and optionally `OLLAMA_URL=https://ollama.com`; the server will attach the bearer token automatically.
 - See **AGENTS.md** for full architecture and agent-oriented notes.

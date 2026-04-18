@@ -1,7 +1,7 @@
 import path from "path";
 import jwt from "jsonwebtoken";
 import { FastifyInstance } from "fastify";
-import { OllamaClient } from "@workspace/ollama-client";
+import { OllamaClient, getDefaultChatModel } from "@workspace/ollama-client";
 import {
   AgentRuntime,
   AgentConfig,
@@ -74,6 +74,7 @@ function handleWs(connection: any, req: any) {
         messages, model, conversation_id, systemPrompt: customSystemPrompt,
         thinking, agentMode, maxIterations, agentStepMode, token: payloadToken
       } = payload;
+      const requestedModel = typeof model === "string" && model.trim() ? model.trim() : getDefaultChatModel();
 
       // userId from WS upgrade headers OR from first-message token (WS can't send custom headers)
       let userId = headerUserId;
@@ -90,10 +91,10 @@ function handleWs(connection: any, req: any) {
 
       let currentConversationId = conversation_id;
       if (!currentConversationId) {
-        currentConversationId = await db.createConversation(conversationTitle, model, userId);
+        currentConversationId = await db.createConversation(conversationTitle, requestedModel, userId);
       } else {
         // Client generates UUIDs in the browser before any DB row exists; create the row if missing.
-        await db.ensureConversation(currentConversationId, conversationTitle, model, userId);
+        await db.ensureConversation(currentConversationId, conversationTitle, requestedModel, userId);
       }
 
       // 1. Retrieve Knowledge (RAG)
@@ -167,7 +168,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         emitStepEvt('planning', 'Planning the next moves for your request…', 'success');
 
         const agentConfig: AgentConfig = {
-          model: model || 'qwen2.5:0.5b',
+          model: requestedModel,
           maxIterations: typeof maxIterations === 'number' ? maxIterations : 10,
           mode: agentStepMode === 'step' ? 'step' : 'auto',
         };
@@ -271,7 +272,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
 
         try {
           await ollama.stream(
-            model || "qwen2.5:0.5b",
+            requestedModel,
             finalMessages,
             (token) => {
               fullAssistantResponse += token;
@@ -324,7 +325,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
 
       if (fullAssistantResponse) {
         // Row may be missing if deleted mid-stream or ensure failed earlier; re-assert before FK insert.
-        await db.ensureConversation(currentConversationId, conversationTitle, model, userId);
+        await db.ensureConversation(currentConversationId, conversationTitle, requestedModel, userId);
         const saved = await db.saveMessage(currentConversationId, 'assistant', fullAssistantResponse);
         savedMessageId = (saved as any).id ?? null;
       }

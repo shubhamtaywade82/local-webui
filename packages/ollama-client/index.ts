@@ -1,16 +1,68 @@
+export type OllamaRequestHeaders = Record<string, string>;
+
+const LOCAL_OLLAMA_BASE = "http://localhost:11434";
+const CLOUD_OLLAMA_BASE = "https://ollama.com";
+const DEFAULT_STREAM_TIMEOUT_MS = Number(process.env.OLLAMA_STREAM_TIMEOUT_MS) || 120_000;
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+export function getOllamaBase(): string {
+  return trimTrailingSlash(
+    process.env.OLLAMA_URL ||
+      (process.env.OLLAMA_API_KEY ? CLOUD_OLLAMA_BASE : LOCAL_OLLAMA_BASE)
+  );
+}
+
+export function getOllamaHeaders(extraHeaders: OllamaRequestHeaders = {}): OllamaRequestHeaders {
+  const headers: OllamaRequestHeaders = { ...extraHeaders };
+  const apiKey = process.env.OLLAMA_API_KEY?.trim();
+
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+
+  return headers;
+}
+
+export function getDefaultChatModel(): string {
+  return process.env.OLLAMA_MODEL || (process.env.OLLAMA_API_KEY ? "gpt-oss:20b" : "qwen2.5:0.5b");
+}
+
+export function getDefaultSummaryModel(): string {
+  return process.env.OLLAMA_SUMMARY_MODEL || process.env.OLLAMA_MODEL || getDefaultChatModel();
+}
+
 export class OllamaClient {
-  constructor(private base = "http://localhost:11434") {}
+  constructor(
+    private base = getOllamaBase(),
+    private defaultHeaders: OllamaRequestHeaders = getOllamaHeaders()
+  ) {}
+
+  private jsonHeaders(): OllamaRequestHeaders {
+    return {
+      "Content-Type": "application/json",
+      ...this.defaultHeaders,
+    };
+  }
 
   async chat(model: string, messages: any[]) {
     const res = await fetch(`${this.base}/api/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.jsonHeaders(),
       body: JSON.stringify({
         model,
         messages,
         stream: false
       })
     });
+
+    if (!res.ok) {
+      const errorBody = await res.text();
+      throw new Error(`Ollama Error: ${res.status} ${res.statusText} - ${errorBody}`);
+    }
+
     return res.json();
   }
 
@@ -22,7 +74,7 @@ export class OllamaClient {
   ) {
     console.log(`[OllamaClient] Streaming chat with model ${model}...`);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_STREAM_TIMEOUT_MS);
 
     try {
       const body: Record<string, unknown> = {
@@ -38,7 +90,7 @@ export class OllamaClient {
 
       const res = await fetch(`${this.base}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.jsonHeaders(),
         body: JSON.stringify(body),
         signal: controller.signal
       });

@@ -82,7 +82,11 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, ollamaStatus: action.status };
 
     case 'SET_MODELS':
-      return { ...state, availableModels: action.models };
+      return {
+        ...state,
+        availableModels: action.models,
+        model: action.models.includes(state.model) ? state.model : (action.models[0] ?? state.model)
+      };
 
     case 'CREATE_CONVERSATION': {
       const conv: Conversation = {

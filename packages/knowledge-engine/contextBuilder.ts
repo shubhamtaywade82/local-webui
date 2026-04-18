@@ -4,7 +4,7 @@ export function buildContext(chunks: Chunk[]): string {
   if (chunks.length === 0) return "No relevant information found in the knowledge base.";
 
   return chunks.map(chunk => {
-    return `### SOURCE: ${chunk.file}${chunk.header ? ` (Section: ${chunk.header})` : ""}
+    return `### SOURCE: ${chunk.path}${chunk.header ? ` (Section: ${chunk.header})` : ""}
 
 ${chunk.content}
 `;
