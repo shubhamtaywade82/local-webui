@@ -7,7 +7,7 @@ export interface DocumentNode {
   summary: string;
 }
 
-const SUPPORTED_EXTENSIONS = [".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".css", ".html", ".sql"];
+const SUPPORTED_EXTENSIONS = [".md", ".ts", ".tsx", ".js", ".jsx", ".py", ".json", ".css", ".html", ".sql", ".rb"];
 const IGNORED_DIRS = ["node_modules", ".git", "dist", "build", "coverage"];
 
 export function scanDocuments(dirPath: string): DocumentNode[] {

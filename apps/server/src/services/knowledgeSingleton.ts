@@ -7,5 +7,6 @@ const workspaceRoot = path.join(process.cwd(), "../../workspace");
 
 export const knowledgeEngine = new KnowledgeEngine([
   resolveKnowledgeRoot(),
-  workspaceRoot
+  workspaceRoot,
+  '/home/nemesis/project/trading-workspace/indicator_hub'
 ]);

@@ -38,6 +38,20 @@ const PRICE_KEYWORDS = /\b(price|rate|worth|value|cost|ticker|market|trading at|
 const TREND_KEYWORDS = /\b(trend|direction|bullish|bearish|moving average|MA|RSI|momentum|support|resistance|breakout|pattern|analysis|chart|signal|going up|going down|oversold|overbought)\b/i;
 const FUTURES_KEYWORDS = /\b(futures|perp|perpetual|swap|contract|long|short|leverage)\b/i;
 
+/** Map query intent to candle interval + label */
+function resolveInterval(message: string): { interval: string; label: string; limit: number } {
+  const m = message.toLowerCase();
+  if (/\b(scalp|1m|1\s*min|one\s*min)\b/.test(m))      return { interval: '1m',  label: '1m (scalp)',      limit: 60  };
+  if (/\b(5m|5\s*min|five\s*min)\b/.test(m))            return { interval: '5m',  label: '5m',              limit: 60  };
+  if (/\b(15m|15\s*min|fifteen\s*min)\b/.test(m))       return { interval: '15m', label: '15m',             limit: 60  };
+  if (/\b(30m|30\s*min|half\s*hour)\b/.test(m))         return { interval: '30m', label: '30m',             limit: 60  };
+  if (/\b(intraday|hourly|1h|1\s*hour|one\s*hour|today|short.?term|short term)\b/.test(m)) return { interval: '1h', label: '1h (intraday)', limit: 48 };
+  if (/\b(4h|4\s*hour|four\s*hour|swing)\b/.test(m))   return { interval: '4h',  label: '4h (swing)',      limit: 50  };
+  if (/\b(daily|1d|day|weekly|long.?term|long term)\b/.test(m)) return { interval: '1d', label: '1d (daily)', limit: 60 };
+  // default
+  return { interval: '4h', label: '4h', limit: 50 };
+}
+
 function computeTrend(candles: any[]): string {
   if (candles.length < 5) return 'insufficient data';
   const closes = candles.map(c => parseFloat(c.close));
@@ -82,26 +96,33 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
   const wantsFutures = FUTURES_KEYWORDS.test(message);
   if (!mentioned.length || (!PRICE_KEYWORDS.test(message) && !wantsTrend && !wantsFutures)) return '';
 
+  const { interval, label, limit } = resolveInterval(message);
+  const intervalMs: Record<string, number> = {
+    '1m': 60_000, '5m': 300_000, '15m': 900_000, '30m': 1_800_000,
+    '1h': 3_600_000, '4h': 14_400_000, '1d': 86_400_000,
+  };
+  const msPerBar = intervalMs[interval] ?? 14_400_000;
+
   try {
     const parts: string[] = [];
     const priceRows: string[] = [];
 
-    // For futures queries: fetch candles from public.coindcx.com for trend + price
+    // For futures/trend queries: fetch candles at detected timeframe
     if (wantsFutures || wantsTrend) {
       for (const sym of mentioned) {
         const pair = `B-${sym}_USDT`;
         try {
           const now = Date.now();
-          const startTime = now - 50 * 4 * 3_600_000; // 50 x 4h candles
-          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}`;
+          const startTime = now - msPerBar * (limit + 5);
+          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=${interval}&limit=${limit}&startTime=${startTime}`;
           const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
           if (res.ok) {
             const candles: any[] = await res.json();
             if (candles.length > 0) {
               const sorted = [...candles].sort((a, b) => a.time - b.time);
               const last = sorted[sorted.length - 1];
-              priceRows.push(`${pair} (futures): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
-              parts.push(`${sym}/USDT FUTURES TREND (4h, ${sorted.length} bars): ${computeTrend(sorted)}`);
+              priceRows.push(`${pair} (futures ${label}): last=$${last.close} high=$${last.high} low=$${last.low} vol=${last.volume}`);
+              parts.push(`${sym}/USDT FUTURES TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
             }
           }
         } catch { /* best effort */ }
@@ -136,14 +157,14 @@ async function fetchLiveCryptoContext(message: string): Promise<string> {
         const pair = `B-${sym}_USDT`;
         try {
           const now = Date.now();
-          const startTime = now - 50 * 4 * 3_600_000;
-          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=4h&limit=50&startTime=${startTime}`;
+          const startTime = now - msPerBar * (limit + 5);
+          const url = `https://public.coindcx.com/market_data/candles?pair=${pair}&interval=${interval}&limit=${limit}&startTime=${startTime}`;
           const candleRes = await fetch(url, { signal: AbortSignal.timeout(5_000) });
           if (candleRes.ok) {
             const candles: any[] = await candleRes.json();
             if (candles.length > 0) {
               const sorted = [...candles].sort((a, b) => a.time - b.time);
-              trendParts.push(`${sym}/USDT TREND (4h, ${sorted.length} bars): ${computeTrend(sorted)}`);
+              trendParts.push(`${sym}/USDT TREND [${label}, ${sorted.length} bars]: ${computeTrend(sorted)}`);
             }
           }
         } catch { /* best effort */ }
