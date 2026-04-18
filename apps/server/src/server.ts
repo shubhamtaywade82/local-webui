@@ -1,4 +1,7 @@
 import "./loadEnv";
+import { initTelemetry } from "@workspace/telemetry";
+initTelemetry('ai-workspace-server');
+
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";

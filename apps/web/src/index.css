@@ -471,3 +471,18 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* ═══════════════════ Shiki Code Highlighter ═══════════════════ */
+
+.shiki-wrapper pre {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+.shiki-wrapper pre code {
+  background: none !important;
+  padding: 0 !important;
+  border: none !important;
+  font-size: 0.8rem;
+  line-height: 1.6;
+}

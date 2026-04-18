@@ -46,6 +46,7 @@ interface ChatState {
   agentMode: boolean;
   agentStepMode: 'auto' | 'step';
   maxIterations: number;
+  shikiTheme: string;
 }
 
 // ── Actions ──
@@ -71,7 +72,8 @@ type ChatAction =
   | { type: 'SET_CONVERSATIONS'; conversations: Conversation[] }
   | { type: 'TOGGLE_AGENT_MODE' }
   | { type: 'SET_AGENT_STEP_MODE'; mode: 'auto' | 'step' }
-  | { type: 'SET_MAX_ITERATIONS'; count: number };
+  | { type: 'SET_MAX_ITERATIONS'; count: number }
+  | { type: 'SET_SHIKI_THEME'; theme: string };
 
 // ── Reducer ──
 
@@ -308,6 +310,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'SET_MAX_ITERATIONS':
       return { ...state, maxIterations: action.count };
 
+    case 'SET_SHIKI_THEME':
+      return { ...state, shikiTheme: action.theme };
+
     default:
       return state;
   }
@@ -352,7 +357,8 @@ const initialState: ChatState = {
   ollamaStatus: activeInitialProvider.ollamaStatus,
   agentMode: savedSettings.agentMode ?? false,
   agentStepMode: savedSettings.agentStepMode || 'auto',
-  maxIterations: savedSettings.maxIterations ?? 10
+  maxIterations: savedSettings.maxIterations ?? 10,
+  shikiTheme: savedSettings.shikiTheme || 'github-dark'
 };
 
 // ── Context ──
@@ -400,6 +406,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       agentMode: state.agentMode,
       agentStepMode: state.agentStepMode,
       maxIterations: state.maxIterations,
+      shikiTheme: state.shikiTheme,
     }));
   }, [
     state.providerMode,
@@ -409,7 +416,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     state.systemPrompt,
     state.agentMode,
     state.agentStepMode,
-    state.maxIterations
+    state.maxIterations,
+    state.shikiTheme
   ]);
 
   const activeConversation = state.conversations.find(

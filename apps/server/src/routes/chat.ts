@@ -1,5 +1,6 @@
 import path from "path";
 import jwt from "jsonwebtoken";
+import { withSpan } from "@workspace/telemetry";
 import { FastifyInstance } from "fastify";
 import {
   createOllamaClient,
@@ -111,13 +112,20 @@ function handleWs(connection: any, req: any) {
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
-      // 2. Prepare Context (History)
+      // 2. Prepare Context (History) — use cached summary, re-summarize only every 5 new messages
       const history = await db.getMessages(currentConversationId);
       let historyContext = "";
       if (history.length > 10) {
-        const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
-        const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
-        historyContext = `Conversation Summary:\n${summary}`;
+        const cached = await db.getSummary(currentConversationId);
+        const needsRefresh = !cached || history.length >= cached.messageCount + 5;
+        if (needsRefresh) {
+          const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
+          const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
+          await db.upsertSummary(currentConversationId, summary, history.length);
+          historyContext = `Conversation Summary:\n${summary}`;
+        } else {
+          historyContext = `Conversation Summary:\n${cached.summary}`;
+        }
       }
 
       // 3. Prepare System Prompt (chat mode)
@@ -204,7 +212,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         };
 
         try {
-          await runtime.run(
+          await withSpan('chat', 'agent.run', () => runtime.run(
             lastUserMessage,
             history.map((m: any) => ({ role: m.role, content: m.content })),
             (event: LoopEvent) => {
@@ -256,7 +264,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
               }
             },
             agentConfig.mode === 'step' ? onApproval : undefined
-          );
+          ));
         } finally {
           connection.socket.off('message', approvalListener);
         }
@@ -280,7 +288,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         emitStep('planning', 'Planning how to answer…', 'success');
 
         try {
-          await ollama.stream(
+          await withSpan('chat', 'ollama.stream', () => ollama.stream(
             requestedModel,
             finalMessages,
             (token) => {
@@ -321,7 +329,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
             // UI "Thinking" uses XML in the system prompt only. Native Ollama `think: true` can stall
             // non–thinking-tuned models (e.g. llama3.2); explicitly turn native thinking off here.
             thinking ? { think: false } : undefined
-          );
+          ));
 
           emitStep('synthesis', 'Finalizing response', 'success');
           connection.socket.send(JSON.stringify({ type: 'done', conversation_id: currentConversationId }));

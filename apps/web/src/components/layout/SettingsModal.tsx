@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, Save } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
+import { SHIKI_THEMES } from '../../lib/shiki';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -20,6 +21,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [agentMode, setAgentMode] = useState(state.agentMode);
   const [agentStepMode, setAgentStepMode] = useState(state.agentStepMode);
   const [maxIterations, setMaxIterations] = useState(state.maxIterations);
+  const [shikiTheme, setShikiTheme] = useState((state as any).shikiTheme || 'github-dark');
 
   useEffect(() => {
     setModelsByProvider({
@@ -45,6 +47,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     if (state.agentMode !== agentMode) dispatch({ type: 'TOGGLE_AGENT_MODE' });
     dispatch({ type: 'SET_AGENT_STEP_MODE', mode: agentStepMode });
     dispatch({ type: 'SET_MAX_ITERATIONS', count: maxIterations });
+    dispatch({ type: 'SET_SHIKI_THEME', theme: shikiTheme });
     onClose();
   };
 
@@ -215,6 +218,23 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
               Overrides the default instructions sent to the Ollama model.
             </p>
+          </div>
+
+          {/* Syntax Highlight Theme */}
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+              Code Highlight Theme
+            </label>
+            <select
+              value={shikiTheme}
+              onChange={e => setShikiTheme(e.target.value)}
+              className="w-full text-sm rounded-lg px-3 py-2.5 outline-none transition-colors"
+              style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-default)', color: 'var(--text-primary)' }}
+            >
+              {SHIKI_THEMES.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
           </div>
 
         </div>

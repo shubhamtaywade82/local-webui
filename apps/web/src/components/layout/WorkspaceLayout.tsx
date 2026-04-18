@@ -1,16 +1,18 @@
 import {
-  PanelLeft, Code2, MessageSquare, BookOpen
+  PanelLeft, Code2, MessageSquare, BookOpen, Database
 } from 'lucide-react';
 import { useResizablePanels, type PanelConfig } from '../../hooks/useResizablePanels';
 import Sidebar from './Sidebar';
 import ChatPanel from '../chat/ChatPanel';
 import CodeEditorPanel from '../editor/CodeEditorPanel';
 import ResearchPanel from '../research/ResearchPanel';
+import SqlResultsPanel from '../sql/SqlResultsPanel';
 
 const PANEL_CONFIGS: PanelConfig[] = [
   { id: 'sidebar', minWidth: 240, maxWidth: 400, defaultWidth: 280, collapsible: true },
   { id: 'editor', minWidth: 300, maxWidth: 900, defaultWidth: 480, collapsible: true },
   { id: 'research', minWidth: 280, maxWidth: 600, defaultWidth: 380, collapsible: true },
+  { id: 'sql', minWidth: 280, maxWidth: 600, defaultWidth: 380, collapsible: true },
 ];
 
 export default function WorkspaceLayout() {
@@ -24,9 +26,11 @@ export default function WorkspaceLayout() {
   const sidebarCollapsed = isPanelCollapsed('sidebar');
   const editorCollapsed = isPanelCollapsed('editor');
   const researchCollapsed = isPanelCollapsed('research');
+  const sqlCollapsed = isPanelCollapsed('sql');
   const sidebarWidth = getPanelWidth('sidebar');
   const editorWidth = getPanelWidth('editor');
   const researchWidth = getPanelWidth('research');
+  const sqlWidth = getPanelWidth('sql');
 
   return (
     <div className="flex h-screen w-screen overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
@@ -41,15 +45,11 @@ export default function WorkspaceLayout() {
         <Sidebar />
       </div>
 
-      {/* ── Sidebar Divider ── */}
       {!sidebarCollapsed && (
-        <div
-          className="panel-divider"
-          onMouseDown={(e) => startResize('sidebar', e)}
-        />
+        <div className="panel-divider" onMouseDown={(e) => startResize('sidebar', e)} />
       )}
 
-      {/* ── Main Content Area (Chat + Research) ── */}
+      {/* ── Main Content Area ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Bar */}
         <header
@@ -75,6 +75,18 @@ export default function WorkspaceLayout() {
           </div>
 
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => toggleCollapse('sql')}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
+              style={{
+                color: sqlCollapsed ? 'var(--text-tertiary)' : 'var(--accent)',
+                background: sqlCollapsed ? 'transparent' : 'var(--accent-muted)'
+              }}
+              title={sqlCollapsed ? 'Show SQL results' : 'Hide SQL results'}
+            >
+              <Database size={14} />
+              <span className="hidden sm:inline">SQL</span>
+            </button>
             <button
               onClick={() => toggleCollapse('research')}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
@@ -109,33 +121,31 @@ export default function WorkspaceLayout() {
             <ChatPanel />
           </div>
 
-          {/* Research Divider + Panel */}
+          {/* SQL Results Panel */}
+          {!sqlCollapsed && (
+            <>
+              <div className="panel-divider" onMouseDown={(e) => startResize('sql', e)} />
+              <div className="flex-shrink-0 overflow-hidden" style={{ width: sqlWidth }}>
+                <SqlResultsPanel />
+              </div>
+            </>
+          )}
+
+          {/* Research Panel */}
           {!researchCollapsed && (
             <>
-              <div
-                className="panel-divider"
-                onMouseDown={(e) => startResize('research', e)}
-              />
-              <div
-                className="flex-shrink-0 overflow-hidden"
-                style={{ width: researchWidth }}
-              >
+              <div className="panel-divider" onMouseDown={(e) => startResize('research', e)} />
+              <div className="flex-shrink-0 overflow-hidden" style={{ width: researchWidth }}>
                 <ResearchPanel />
               </div>
             </>
           )}
 
-          {/* Editor Divider + Panel */}
+          {/* Editor Panel */}
           {!editorCollapsed && (
             <>
-              <div
-                className="panel-divider"
-                onMouseDown={(e) => startResize('editor', e)}
-              />
-              <div
-                className="flex-shrink-0 overflow-hidden"
-                style={{ width: editorWidth }}
-              >
+              <div className="panel-divider" onMouseDown={(e) => startResize('editor', e)} />
+              <div className="flex-shrink-0 overflow-hidden" style={{ width: editorWidth }}>
                 <CodeEditorPanel />
               </div>
             </>

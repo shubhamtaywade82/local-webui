@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import DOMPurify from 'dompurify';
 import { Copy, Check, FileDown } from 'lucide-react';
 import { useEditorStore } from '../../stores/useEditorStore';
+import { highlight, type ShikiTheme } from '../../lib/shiki';
+import { useChatStore } from '../../stores/useChatStore';
 
 interface MarkdownRendererProps {
   content: string;
@@ -12,7 +13,14 @@ interface MarkdownRendererProps {
 
 function CodeBlock({ language, code, meta }: { language: string; code: string; meta?: string }) {
   const [copied, setCopied] = useState(false);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
   const { files, openFile, updateContent } = useEditorStore();
+  const { state } = useChatStore();
+  const theme = (state as any).shikiTheme as ShikiTheme ?? 'github-dark';
+
+  useEffect(() => {
+    highlight(code, language, theme).then(html => setHighlightedHtml(html));
+  }, [code, language, theme]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code);
@@ -80,21 +88,17 @@ function CodeBlock({ language, code, meta }: { language: string; code: string; m
           </button>
         </div>
       </div>
-      <SyntaxHighlighter
-        style={vscDarkPlus}
-        language={language}
-        PreTag="div"
-        customStyle={{
-          margin: 0,
-          borderRadius: 0,
-          padding: '0.75rem 1rem',
-          fontSize: '0.8rem',
-          lineHeight: '1.6',
-          background: '#1a1a2e'
-        }}
-      >
-        {code}
-      </SyntaxHighlighter>
+      {highlightedHtml ? (
+        <div
+          className="shiki-wrapper"
+          style={{ fontSize: '0.8rem', lineHeight: '1.6', overflowX: 'auto' }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(highlightedHtml) }}
+        />
+      ) : (
+        <pre style={{ margin: 0, padding: '0.75rem 1rem', fontSize: '0.8rem', lineHeight: '1.6', background: '#1a1a2e', overflowX: 'auto' }}>
+          <code>{code}</code>
+        </pre>
+      )}
     </div>
   );
 }

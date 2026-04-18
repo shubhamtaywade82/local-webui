@@ -107,6 +107,25 @@ AgentExecution.init({
   updatedAt: false,
 });
 
+class ConversationSummary extends Model {
+  declare id: string;
+  declare conversationId: string;
+  declare summary: string;
+  declare messageCount: number;
+  declare createdAt: Date;
+}
+
+ConversationSummary.init({
+  id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  summary: DataTypes.TEXT,
+  messageCount: DataTypes.INTEGER,
+}, {
+  sequelize,
+  modelName: 'conversation_summary',
+  underscored: true,
+  updatedAt: false,
+});
+
 // Associations
 User.hasMany(Conversation, { foreignKey: 'userId' });
 Conversation.belongsTo(User, { foreignKey: 'userId' });
@@ -119,6 +138,9 @@ Artifact.belongsTo(Conversation, { foreignKey: 'conversationId' });
 
 Message.hasMany(AgentExecution, { foreignKey: 'messageId' });
 AgentExecution.belongsTo(Message, { foreignKey: 'messageId' });
+
+Conversation.hasOne(ConversationSummary, { foreignKey: 'conversationId' });
+ConversationSummary.belongsTo(Conversation, { foreignKey: 'conversationId' });
 
 // Sync schema. `alter` updates existing tables in dev when models gain columns.
 // Production often sets NODE_ENV=production (alter off); `patchConversationUserIdColumn`
@@ -224,5 +246,20 @@ export const db = {
 
   async getAgentExecutions(messageId: string) {
     return AgentExecution.findAll({ where: { messageId }, order: [['createdAt', 'ASC']] });
+  },
+
+  async getSummary(conversationId: string): Promise<{ summary: string; messageCount: number } | null> {
+    const row = await ConversationSummary.findOne({ where: { conversationId } });
+    if (!row) return null;
+    return { summary: row.summary, messageCount: row.messageCount };
+  },
+
+  async upsertSummary(conversationId: string, summary: string, messageCount: number) {
+    const existing = await ConversationSummary.findOne({ where: { conversationId } });
+    if (existing) {
+      await existing.update({ summary, messageCount });
+    } else {
+      await ConversationSummary.create({ conversationId, summary, messageCount });
+    }
   },
 };

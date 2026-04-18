@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ChatStoreProvider } from './stores/useChatStore';
 import { EditorStoreProvider } from './stores/useEditorStore';
 import { AuthProvider, useAuthStore } from './stores/useAuthStore';
+import { SqlResultsProvider } from './stores/useSqlResultsStore';
 import WorkspaceLayout from './components/layout/WorkspaceLayout';
 import LoginPage from './components/auth/LoginPage';
 import RegisterPage from './components/auth/RegisterPage';
@@ -20,7 +21,9 @@ function AppContent() {
   return (
     <ChatStoreProvider>
       <EditorStoreProvider>
-        <WorkspaceLayout />
+        <SqlResultsProvider>
+          <WorkspaceLayout />
+        </SqlResultsProvider>
       </EditorStoreProvider>
     </ChatStoreProvider>
   );
