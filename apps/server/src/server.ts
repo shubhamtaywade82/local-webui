@@ -1,16 +1,26 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
+import multipart from "@fastify/multipart";
 import chatRoutes from "./routes/chat";
 import conversationsRoutes from "./routes/conversations";
 import modelsRoutes from "./routes/models";
+import kbRoutes from "./routes/kb";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ 
+  logger: true,
+  ignoreTrailingSlash: true
+});
 
 async function start() {
   await app.register(cors);
+  await app.register(websocket);
+  await app.register(multipart);
+  
   await app.register(chatRoutes, { prefix: "/chat" });
   await app.register(conversationsRoutes, { prefix: "/conversations" });
   await app.register(modelsRoutes, { prefix: "/models" });
+  await app.register(kbRoutes, { prefix: "/kb" });
 
   // Global health check
   app.get("/health", async () => ({

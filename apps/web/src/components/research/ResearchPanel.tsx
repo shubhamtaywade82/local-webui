@@ -5,6 +5,8 @@ import {
   XCircle, Loader2, Wrench, BookOpen, Layers
 } from 'lucide-react';
 import { useChatStore } from '../../stores/useChatStore';
+import KnowledgeUpload from './KnowledgeUpload';
+import { useEffect } from 'react';
 
 // ── Types ──
 
@@ -57,6 +59,13 @@ const SAMPLE_KB_FILES = [
   { path: 'trading/risk-management.md', size: '2.9 KB' },
   { path: 'trivia.md', size: '0.4 KB' },
 ];
+
+interface KbStats {
+  totalDirectories: number;
+  totalDocuments: number;
+  totalChunks: number;
+  totalEmbeddedChunks: number;
+}
 
 // ── Components ──
 
@@ -175,8 +184,33 @@ function AgentTimeline({ steps }: { steps: AgentStep[] }) {
 }
 
 function KnowledgeBaseView() {
+  const [files, setFiles] = useState<string[]>([]);
+  const [stats, setStats] = useState<KbStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = async () => {
+    try {
+      const res = await fetch('/api/kb/list');
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files);
+        setStats(data.stats);
+      }
+    } catch (err) {
+      console.error('Failed to fetch KB data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
   return (
-    <div className="p-3 space-y-3">
+    <div className="p-3 space-y-4">
+      <KnowledgeUpload />
+
       {/* Stats */}
       <div
         className="grid grid-cols-3 gap-2 p-3 rounded-lg"
@@ -186,9 +220,9 @@ function KnowledgeBaseView() {
         }}
       >
         {[
-          { label: 'Files', value: '5', icon: FileText },
-          { label: 'Chunks', value: '24', icon: Layers },
-          { label: 'Indexed', value: '100%', icon: Database },
+          { label: 'Files', value: stats?.totalDocuments ?? '0', icon: FileText },
+          { label: 'Chunks', value: stats?.totalChunks ?? '0', icon: Layers },
+          { label: 'Embedded', value: stats?.totalEmbeddedChunks ?? '0', icon: Database },
         ].map((stat, i) => {
           const Icon = stat.icon;
           return (
@@ -203,25 +237,42 @@ function KnowledgeBaseView() {
 
       {/* File List */}
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>
-          Indexed Documents
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            Indexed Documents
+          </div>
+          <button 
+            onClick={fetchData} 
+            className="text-[10px] hover:text-[var(--accent)] transition-colors"
+            style={{ color: 'var(--text-tertiary)' }}
+          >
+            Refresh
+          </button>
         </div>
-        <div className="space-y-0.5">
-          {SAMPLE_KB_FILES.map((file, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors hover:bg-white/[0.03]"
-            >
-              <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
-              <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
-                {file.path}
-              </span>
-              <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
-                {file.size}
-              </span>
-            </div>
-          ))}
-        </div>
+        
+        {loading ? (
+          <div className="py-8 flex justify-center">
+            <Loader2 size={20} className="animate-spin" style={{ color: 'var(--accent)' }} />
+          </div>
+        ) : files.length === 0 ? (
+          <div className="py-8 text-center" style={{ color: 'var(--text-muted)' }}>
+            <p className="text-xs">No documents indexed yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-0.5 max-h-[300px] overflow-y-auto pr-1">
+            {files.map((path, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md transition-colors hover:bg-white/[0.03]"
+              >
+                <BookOpen size={12} style={{ color: 'var(--text-muted)' }} />
+                <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
+                  {path}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

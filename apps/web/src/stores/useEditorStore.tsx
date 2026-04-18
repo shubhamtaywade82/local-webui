@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 export interface EditorFile {
   id: string;
@@ -35,7 +35,25 @@ function getPersistedEditorState(): EditorState | null {
   return null;
 }
 
+interface EditorContextValue {
+  files: EditorFile[];
+  activeFile: EditorFile | null;
+  activeFileId: string | null;
+  openFile: (path: string, content: string) => void;
+  closeFile: (fileId: string) => void;
+  setActiveFile: (fileId: string) => void;
+  updateContent: (fileId: string, content: string) => void;
+}
+
+const EditorContext = createContext<EditorContextValue | null>(null);
+
 export function useEditorStore() {
+  const ctx = useContext(EditorContext);
+  if (!ctx) throw new Error('useEditorStore must be used within EditorStoreProvider');
+  return ctx;
+}
+
+export function EditorStoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<EditorState>(() => {
     return getPersistedEditorState() || {
       files: [],
@@ -97,13 +115,17 @@ export function useEditorStore() {
 
   const activeFile = state.files.find(f => f.id === state.activeFileId) ?? null;
 
-  return {
-    files: state.files,
-    activeFile,
-    activeFileId: state.activeFileId,
-    openFile,
-    closeFile,
-    setActiveFile,
-    updateContent
-  };
+  return (
+    <EditorContext.Provider value={{
+      files: state.files,
+      activeFile,
+      activeFileId: state.activeFileId,
+      openFile,
+      closeFile,
+      setActiveFile,
+      updateContent
+    }}>
+      {children}
+    </EditorContext.Provider>
+  );
 }

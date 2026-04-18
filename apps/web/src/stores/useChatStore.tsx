@@ -338,92 +338,95 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     abortRef.current = controller;
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: state.model,
-          messages: contextMessages,
-          thinking: state.isThinkingEnabled,
-          systemPrompt: state.systemPrompt || undefined
-        }),
-        signal: controller.signal
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        dispatch({
-          type: 'APPEND_TOKEN',
-          conversationId: convId,
-          messageId: assistantId,
-          token: `**Error:** ${res.status} ${res.statusText}${text ? ` — ${text.slice(0, 200)}` : ''}`
-        });
-        dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
-        return;
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) {
-        dispatch({
-          type: 'APPEND_TOKEN',
-          conversationId: convId,
-          messageId: assistantId,
-          token: '**Error:** No response body.'
-        });
-        dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
-        return;
-      }
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/api/chat`;
+      const ws = new WebSocket(wsUrl);
 
       dispatch({ type: 'SET_STREAMING_STATE', state: 'streaming' });
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          model: state.model,
+          messages: contextMessages,
+          thinking: state.isThinkingEnabled,
+          conversation_id: convId,
+          systemPrompt: state.systemPrompt || undefined
+        }));
+      };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.token) {
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'token') {
+            dispatch({
+              type: 'APPEND_TOKEN',
+              conversationId: convId,
+              messageId: assistantId,
+              token: data.token
+            });
+          } else if (data.type === 'sources') {
+            dispatch({
+              type: 'SET_MESSAGE_SOURCES',
+              conversationId: convId,
+              messageId: assistantId,
+              sources: data.sources
+            });
+          } else if (data.type === 'tool_call') {
+            // Intercept Tool Call!
+            if (data.tool === 'edit_file') {
+              console.log("TOOL CALL RECEIVED:", data);
+              // Dispatch custom event to CodeEditorPanel
+              window.dispatchEvent(new CustomEvent('editor:tool_call', {
+                detail: {
+                  path: data.path,
+                  content: data.content
+                }
+              }));
+              
+              // Also add a little inline note to chat
               dispatch({
                 type: 'APPEND_TOKEN',
                 conversationId: convId,
                 messageId: assistantId,
-                token: data.token
-              });
-            } else if (data.sources) {
-              dispatch({
-                type: 'SET_MESSAGE_SOURCES',
-                conversationId: convId,
-                messageId: assistantId,
-                sources: data.sources
-              });
-            } else if (data.error) {
-              dispatch({
-                type: 'APPEND_TOKEN',
-                conversationId: convId,
-                messageId: assistantId,
-                token: `\n\n**Stream Error:** ${data.error}`
+                token: `\n\n_Agent is modifying \`${data.path}\`..._\n`
               });
             }
-          } catch {
-            // Ignore malformed JSON
+          } else if (data.type === 'error') {
+            dispatch({
+              type: 'APPEND_TOKEN',
+              conversationId: convId,
+              messageId: assistantId,
+              token: `\n\n**Stream Error:** ${data.error}`
+            });
+            dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
+          } else if (data.type === 'done') {
+            ws.close();
+            dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });
           }
+        } catch {
+          // ignore
         }
-      }
+      };
 
-      dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });
+      ws.onerror = () => {
+        dispatch({
+          type: 'APPEND_TOKEN',
+          conversationId: convId,
+          messageId: assistantId,
+          token: `\n\n**Error:** WebSocket connection failed.`
+        });
+        dispatch({ type: 'SET_STREAMING_STATE', state: 'error' });
+      };
+
+      ws.onclose = () => {
+        dispatch({ type: 'FINISH_STREAMING', conversationId: convId, messageId: assistantId });
+      };
+
+      // Ensure we can manually abort
+      controller.signal.addEventListener('abort', () => ws.close());
+
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
-      const msg = err instanceof Error && err.name === 'TypeError' && err.message.includes('fetch')
-        ? 'Could not reach the backend. Is Ollama running?'
-        : `Error: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = `Error: ${err instanceof Error ? err.message : String(err)}`;
       dispatch({
         type: 'APPEND_TOKEN',
         conversationId: convId,

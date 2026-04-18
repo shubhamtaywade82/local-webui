@@ -3,14 +3,16 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, FileDown } from 'lucide-react';
+import { useEditorStore } from '../../stores/useEditorStore';
 
 interface MarkdownRendererProps {
   content: string;
 }
 
-function CodeBlock({ language, code }: { language: string; code: string }) {
+function CodeBlock({ language, code, meta }: { language: string; code: string; meta?: string }) {
   const [copied, setCopied] = useState(false);
+  const { openFile } = useEditorStore();
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(code);
@@ -20,15 +22,32 @@ function CodeBlock({ language, code }: { language: string; code: string }) {
 
   return (
     <div className="code-block-wrapper">
-      <div className="code-block-header">
-        <span className="code-block-lang">{language}</span>
-        <button
-          onClick={handleCopy}
-          className={`code-copy-btn ${copied ? 'copied' : ''}`}
-        >
-          {copied ? <Check size={10} /> : <Copy size={10} />}
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
+      <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] border-b border-white/5">
+        <span className="text-xs font-mono text-gray-400">
+          {meta || language}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => {
+              const path = meta || `untitled.${language}`;
+              openFile(path, code);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold rounded hover:bg-white/10 transition-colors text-blue-400 hover:text-blue-300"
+            title="Open in Editor"
+          >
+            <FileDown size={12} />
+            Apply to Editor
+          </button>
+          
+          <div className="w-px h-3 bg-white/10 mx-1" />
+
+          <button
+            onClick={handleCopy}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-wider font-semibold rounded hover:bg-white/10 transition-colors ${copied ? 'text-green-400' : 'text-gray-400 hover:text-gray-300'}`}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
       <SyntaxHighlighter
         style={vscDarkPlus}
@@ -61,7 +80,7 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
           const code = String(children).replace(/\n$/, '');
 
           if (!inline && match) {
-            return <CodeBlock language={match[1]} code={code} />;
+            return <CodeBlock language={match[1]} code={code} meta={node?.data?.meta} />;
           }
 
           return (

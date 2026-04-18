@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
+    "@fastify/multipart": "^8.3.0",
+    "@fastify/websocket": "^8.2.0",
     "@types/pg": "^8.18.0",
     "@workspace/knowledge-engine": "workspace:*",
     "@workspace/ollama-client": "workspace:*",

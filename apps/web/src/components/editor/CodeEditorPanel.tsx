@@ -95,6 +95,26 @@ export default function CodeEditorPanel() {
     }
   }, []);
 
+  // Listen for AI tool calls
+  useEffect(() => {
+    const handleToolCall = (event: any) => {
+      const { path, content } = event.detail;
+      console.log(`[CodeEditorPanel] AI Tool Call: Editing ${path}`);
+      openFile(path, content);
+      
+      // If the file was already open, openFile shifts focus. 
+      // We might want to ensure the content is updated if the AI sends a diff or new version.
+      // Since our openFile handles "existing" by just switching focus, we should manually update content if it exists.
+      const existing = files.find(f => f.path === path);
+      if (existing) {
+        updateContent(existing.id, content);
+      }
+    };
+
+    window.addEventListener('editor:tool_call', handleToolCall);
+    return () => window.removeEventListener('editor:tool_call', handleToolCall);
+  }, [files, openFile, updateContent]);
+
   return (
     <div className="flex flex-col h-full" style={{ background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border-subtle)' }}>
       {/* ── Tab Bar ── */}
