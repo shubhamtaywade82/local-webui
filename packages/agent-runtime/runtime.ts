@@ -33,8 +33,14 @@ Rules:
 - Always include "thought" to explain your reasoning
 - Use finish ONLY when you have confirmed data — do NOT finish with assumptions or "not found" after a single failed lookup
 - If a tool returns no match, try alternative symbols/actions before concluding something doesn't exist
-- For coindcx: if spot_ticker finds nothing, call markets with symbol=BTC to discover exact pair names first
-- The finish answer field supports markdown — use headers, lists, tables as appropriate`;
+- The finish answer field supports markdown — use headers, lists, tables as appropriate
+
+CoinDCX tool routing (STRICT):
+- For price/market data queries (price, ticker, orderbook, candles, trade history): ALWAYS use the "coindcx" tool (public, no auth needed)
+- For trading actions (orders, positions, leverage, margin): use "coindcx_futures" tool (requires API keys)
+- NEVER call coindcx_futures for a price or market data query — it will always fail without API keys
+- Discovery order for crypto prices: (1) coindcx(action=spot_ticker, symbol=BTCUSDT) → (2) if not found, coindcx(action=markets, symbol=BTC) to find exact pair name → (3) retry spot_ticker with correct pair → (4) try coindcx(action=futures_prices) for perpetual futures price
+- BTC pairs on CoinDCX: spot uses BTCUSDT or BTCINR; futures uses B-BTC_USDT format`;
 }
 
 function parseToolCall(content: string): ToolCall | null {

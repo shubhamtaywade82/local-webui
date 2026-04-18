@@ -111,8 +111,10 @@ function handleWs(connection: any, req: any) {
         await db.ensureConversation(currentConversationId, conversationTitle, requestedModel, userId);
       }
 
-      // 1. Retrieve Knowledge (RAG)
-      const contextDocs = await knowledge.retrieve(lastUserMessage, {}, requestedProvider);
+      // 1. Retrieve Knowledge (RAG) — filter out low-relevance results (cosine < 0.35)
+      const MIN_RAG_SCORE = 0.35;
+      const allContextDocs = await knowledge.retrieve(lastUserMessage, {}, requestedProvider);
+      const contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
