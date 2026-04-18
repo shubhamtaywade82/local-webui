@@ -265,6 +265,7 @@ interface ChatContextValue {
   checkOllamaStatus: () => Promise<void>;
   fetchModels: () => Promise<void>;
   loadConversations: () => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -346,6 +347,20 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch {}
+  }, []);
+
+  const deleteConversation = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (res.ok) {
+        dispatch({ type: 'DELETE_CONVERSATION', id });
+      }
+    } catch {
+      // keep UI unchanged on failure
+    }
   }, []);
 
   const fetchModels = useCallback(async () => {
@@ -540,7 +555,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     createNewConversation,
     checkOllamaStatus,
     fetchModels,
-    loadConversations
+    loadConversations,
+    deleteConversation
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

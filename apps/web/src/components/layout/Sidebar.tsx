@@ -14,7 +14,8 @@ export default function Sidebar() {
     createNewConversation,
     checkOllamaStatus,
     fetchModels,
-    loadConversations
+    loadConversations,
+    deleteConversation
   } = useChatStore();
   const { auth, logout } = useAuthStore();
 
@@ -186,7 +187,7 @@ export default function Sidebar() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      dispatch({ type: 'DELETE_CONVERSATION', id: conv.id });
+                      void deleteConversation(conv.id);
                     }}
                     className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/10 transition-all flex-shrink-0"
                     title="Delete conversation"
