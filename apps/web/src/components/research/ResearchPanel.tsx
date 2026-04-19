@@ -339,6 +339,10 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
 
         if (msg.type === 'update') {
           const update = msg.data;
+          const sym = String(update.sym ?? '').toUpperCase();
+          if (!['BTC', 'ETH', 'SOL'].includes(sym)) {
+            return;
+          }
           const currentPrice = parseFloat(String(update.price ?? '').replace(/,/g, ''));
           if (!Number.isFinite(currentPrice)) {
             return;
@@ -346,24 +350,24 @@ function StrategyView({ onAction }: { onAction: (prompt: string) => void }) {
             
             setPulse(prev => {
               const next = [...prev];
-              const idx = next.findIndex(p => p.sym === update.sym);
+              const idx = next.findIndex((p) => p.sym === sym);
               if (idx >= 0) {
-                next[idx] = { ...next[idx], ...update };
+                next[idx] = { ...next[idx], ...update, sym };
               } else {
-                next.push(update);
+                next.push({ ...update, sym });
               }
               return next;
             });
 
             // Trigger Flash Animation using local ref
-            const prevPrice = lastKnownPrices[update.sym] || 0;
+            const prevPrice = lastKnownPrices[sym] || 0;
             if (currentPrice !== prevPrice) {
-              setFlashStates(f => ({ ...f, [update.sym]: currentPrice > prevPrice ? 'up' : 'down' }));
+              setFlashStates(f => ({ ...f, [sym]: currentPrice > prevPrice ? 'up' : 'down' }));
               setTimeout(() => {
-                setFlashStates(f => ({ ...f, [update.sym]: null }));
+                setFlashStates(f => ({ ...f, [sym]: null }));
               }, 600);
             }
-            lastKnownPrices[update.sym] = currentPrice;
+            lastKnownPrices[sym] = currentPrice;
           }
         } catch (err) {
           console.error('WS Pulse data error:', err);
