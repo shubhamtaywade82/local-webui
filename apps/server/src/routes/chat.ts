@@ -294,8 +294,11 @@ function handleWs(connection: any, req: any) {
         provider,
         /** When false, only the latest user message is sent to the model (no DB thread / no client history). Default true. */
         includeConversationHistory,
+        /** Plain completion: no agent, tools, RAG, or DB-backed history — client sends the full thread. */
+        simpleChat,
       } = payload;
       const sendConversationHistory = includeConversationHistory !== false;
+      const isSimpleChat = simpleChat === true;
       const requestedProvider = resolveOllamaProvider(provider);
       const requestedModel =
         typeof model === "string" && model.trim()
@@ -324,19 +327,31 @@ function handleWs(connection: any, req: any) {
         await db.ensureConversation(currentConversationId, conversationTitle, requestedModel, userId);
       }
 
+      let history: Array<{ role: string; content: string }> = [];
+      let historyContext = "";
+      let contextDocs: any[] = [];
+      let systemPromptText: string;
+
+      if (isSimpleChat) {
+        const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
+        systemPromptText = base;
+        if (thinking) {
+          systemPromptText += `\n\nTHINKING MODE ENABLED:
+You MUST reason step-by-step before providing your final answer.
+Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
+        }
+      } else {
       // 1. Retrieve Knowledge (RAG) — filter out low-relevance results (cosine < 0.35)
       const MIN_RAG_SCORE = 0.35;
       const [allContextDocs, liveCryptoContext] = await Promise.all([
         knowledge.retrieve(lastUserMessage, {}, requestedProvider),
         fetchLiveCryptoContext(lastUserMessage),
       ]);
-      const contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
+      contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
       // 2. Prepare Context (History) — use cached summary, re-summarize only every 5 new messages
-      let history: Array<{ role: string; content: string }> = [];
-      let historyContext = "";
       if (sendConversationHistory) {
         const rows = await db.getMessages(currentConversationId);
         history = rows.map((m: any) => ({ role: m.role, content: m.content }));
@@ -360,7 +375,7 @@ function handleWs(connection: any, req: any) {
 
       // 3. Prepare System Prompt (chat mode)
       const basePrompt = customSystemPrompt?.trim() ? customSystemPrompt : "You are a local AI assistant.";
-      let systemPromptText = `${basePrompt}
+      systemPromptText = `${basePrompt}
 Use the following context if relevant to the question.
 If not found in context, answer normally.
 
@@ -403,11 +418,14 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
         systemPromptText += `\n\nSTRATEGY DIRECTIVE: LIQUIDITY AUDIT MODE
 - Priorities: Liquidity sweeps, inducement, and internal/external range pools.`;
       }
+      }
 
       const systemPromptMsg = { role: 'system', content: systemPromptText };
-      const finalMessages = sendConversationHistory
+      const finalMessages = isSimpleChat
         ? [systemPromptMsg, ...messages]
-        : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
+        : sendConversationHistory
+          ? [systemPromptMsg, ...messages]
+          : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
 
       // 4. Persist user message
       await db.saveMessage(currentConversationId, 'user', lastUserMessage);
@@ -421,7 +439,7 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
       let fullAssistantResponse = "";
       let savedMessageId: string | null = null;
 
-      if (agentMode) {
+      if (agentMode && !isSimpleChat) {
         // ── Agent mode: ReAct loop ──
         const emitStepEvt = (id: string, label: string, status: 'running' | 'success' | 'error', tool?: string) => {
           connection.socket.send(JSON.stringify({
@@ -542,6 +560,7 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
         const startTime = Date.now();
 
         const emitStep = (id: string, label: string, status: 'running' | 'success', tool?: string) => {
+          if (isSimpleChat) return;
           if (status === 'success' && stepsEmitted.has(id)) return;
           connection.socket.send(JSON.stringify({
             type: 'agent_step',
@@ -571,7 +590,7 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
                 stepsEmitted.add('thinking-done');
               }
 
-              if (buffer.includes("<tool>edit_file</tool>")) {
+              if (!isSimpleChat && buffer.includes("<tool>edit_file</tool>")) {
                 if (!stepsEmitted.has('tool-edit-file')) {
                   emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
                 }

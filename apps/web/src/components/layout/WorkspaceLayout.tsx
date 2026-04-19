@@ -1,5 +1,6 @@
+import { Link } from 'react-router-dom';
 import {
-  PanelLeft, Code2, MessageSquare, BookOpen, Database
+  PanelLeft, Code2, MessageSquare, BookOpen, Database, Zap
 } from 'lucide-react';
 import { useResizablePanels, type PanelConfig } from '../../hooks/useResizablePanels';
 import Sidebar from './Sidebar';
@@ -75,6 +76,15 @@ export default function WorkspaceLayout() {
           </div>
 
           <div className="flex items-center gap-1">
+            <Link
+              to="/chst"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
+              style={{ color: 'var(--text-tertiary)' }}
+              title="Simple streaming chat (no agent)"
+            >
+              <Zap size={14} />
+              <span className="hidden sm:inline">Simple chat</span>
+            </Link>
             <button
               onClick={() => toggleCollapse('sql')}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
