@@ -37,9 +37,11 @@ function SimpleChatRoute() {
     return <Navigate to="/" replace />;
   }
   return (
-    <EditorStoreProvider>
-      <SimpleChatPage />
-    </EditorStoreProvider>
+    <ChatStoreProvider>
+      <EditorStoreProvider>
+        <SimpleChatPage />
+      </EditorStoreProvider>
+    </ChatStoreProvider>
   );
 }
 
