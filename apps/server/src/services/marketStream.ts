@@ -1,4 +1,4 @@
-import { io, type Socket } from 'socket.io-client';
+import io from 'socket.io-client';
 import { EventEmitter } from 'events';
 import { WebSocketServer } from 'ws';
 
@@ -25,8 +25,11 @@ const NOISE_EVENTS = new Set([
 
 type TickSource = 'stream' | 'poll' | 'rest';
 
+/** Market Pulse grid only shows these bases — never emit updates with other `sym` keys. */
+const PULSE_BASES = new Set(['BTC', 'ETH', 'SOL']);
+
 class MarketStream extends EventEmitter {
-  private socket: Socket | null = null;
+  private socket: any = null;
   private wss: WebSocketServer | null = null;
   private latestPrices: Record<string, PriceUpdate> = {};
   private targets = ['B-BTC_USDT', 'B-ETH_USDT', 'B-SOL_USDT'] as const;
@@ -76,43 +79,59 @@ class MarketStream extends EventEmitter {
       }
     });
 
-    console.log('Starting CoinDCX Market Stream (socket.io-client v4 → wss://stream.coindcx.com)');
+    console.log('Starting CoinDCX Market Stream (Legacy Protocol v2.4.0)');
     this.socket = io('wss://stream.coindcx.com', {
       transports: ['websocket'],
       reconnection: true,
-      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
     });
 
-    this.socket.on('connect_error', (err: Error) => {
-      console.error('CoinDCX Connection Error:', err.message);
+    this.socket.on('connect_error', (err: any) => {
+      console.error('CoinDCX Connection Error:', err.message || err);
     });
 
     this.socket.on('connect', () => {
-      console.log('Connected to CoinDCX stream; joining futures price channels');
+      console.log('Connected to CoinDCX Legacy Stream; joining price channels');
       for (const channel of this.targets) {
         const channelName = `${channel}@prices-futures`;
-        this.socket?.emit('join', { channelName });
+        
+        // Strategy A: Standard object-based join
+        this.socket.emit('join', { channelName });
+        
+        // Strategy B: Array-wrapped join (legacy requirement in some SDKs)
+        this.socket.emit('join', ['join', { channelName }]);
       }
-      this.socket?.emit('join', { channelName: 'currentPrices@futures@rt' });
+      
+      // Bulk stream subscriptions
+      this.socket.emit('join', { channelName: 'currentPrices@futures@rt' });
+      this.socket.emit('join', ['join', { channelName: 'currentPrices@futures@rt' }]);
     });
 
-    /** Forward likely price events immediately (true tick path); ignore unrelated socket.io chatter. */
-    this.socket.onAny((event, ...args) => {
-      if (NOISE_EVENTS.has(event)) return;
-      const el = String(event).toLowerCase();
-      const looksLikePrice =
-        el.includes('price') ||
-        el.includes('futures') ||
-        el.includes('ticker') ||
-        el.includes('ltp') ||
-        el.includes('trade') ||
-        el.includes('informant') ||
-        el.includes('prices') ||
-        this.targets.some((t) => String(event).includes(t));
-      if (!looksLikePrice) return;
-      this.dispatchStreamArgs(event, args);
+    // Zero-latency direct price listeners
+    this.socket.on('price-change', (data: any) => {
+      this.handlePriceUpdate('price-change', data, 'stream');
     });
+
+    this.socket.on('prices', (data: any) => {
+      this.handlePriceUpdate('prices', data, 'stream');
+    });
+
+    this.socket.on('currentPrices@futures#update', (data: any) => {
+      this.handlePriceUpdate('bulk-futures', data, 'stream');
+    });
+
+    const anySocket = this.socket as any;
+    const originalEmit = anySocket.onevent; // Socket.io v2 uses onevent for routing
+    anySocket.onevent = (packet: any) => {
+      const [event, data] = packet.data;
+      if (!NOISE_EVENTS.has(event)) {
+        // console.log(`Legacy WS Event: ${event}`);
+        if (event === 'price-change' || event === 'informant' || event.includes('update')) {
+          this.handlePriceUpdate(event, data, 'stream');
+        }
+      }
+      originalEmit.call(anySocket, packet);
+    };
 
     this.socket.on('disconnect', () => {
       console.log('Disconnected from CoinDCX Market Stream');
@@ -259,8 +278,56 @@ class MarketStream extends EventEmitter {
     return s || 'BTC';
   }
 
+  /**
+   * Resolve UI row key (BTC | ETH | SOL). Never use the Socket.IO event name (e.g. `price-change`) as a symbol.
+   */
+  private resolvePulseBase(data: Record<string, unknown>, event: string): string | null {
+    const tryCandidate = (raw: unknown): string | null => {
+      if (raw == null || raw === '') return null;
+      const base = this.normalizeBaseSymbol(String(raw));
+      return PULSE_BASES.has(base) ? base : null;
+    };
+
+    const payloadOrder: unknown[] = [
+      data.market,
+      data.sym,
+      data.m,
+      data.s,
+      (data as { pair?: unknown }).pair,
+      (data as { instrument?: unknown }).instrument,
+      typeof data.channel === 'string' ? data.channel.split('@')[0] : null,
+    ];
+    for (const c of payloadOrder) {
+      const hit = tryCandidate(c);
+      if (hit) return hit;
+    }
+
+    const ev = String(event);
+    for (const pair of this.targets) {
+      if (ev.includes(pair)) return this.normalizeBaseSymbol(pair);
+    }
+
+    return null;
+  }
+
   private handlePriceUpdate(event: string, data: any, source: TickSource) {
     if (!data) return;
+
+    // Handle stringified nested data common in CoinDCX legacy protocol
+    if (typeof data.data === 'string') {
+      try {
+        const nested = JSON.parse(data.data);
+        this.handlePriceUpdate(event, nested, source);
+        return;
+      } catch {
+        // Fall through
+      }
+    }
+    
+    // Diagnostic for stream silence
+    if (source === 'stream') {
+      // console.log(`[StreamDebug] Event: ${event}, Data:`, JSON.stringify(data).slice(0, 200));
+    }
 
     try {
       if (Array.isArray(data)) {
@@ -275,15 +342,8 @@ class MarketStream extends EventEmitter {
       const priceValue = this.parseFinitePrice(data as Record<string, unknown>);
       if (priceValue == null) return;
 
-      const rawSym =
-        (data.sym as string) ||
-        (data.market as string) ||
-        (data.m as string) ||
-        (data.s as string) ||
-        (typeof data.channel === 'string' ? data.channel.split('@')[0] : null) ||
-        (typeof event === 'string' ? event.split('@')[0] : null) ||
-        'B-BTC_USDT';
-      const sym = this.normalizeBaseSymbol(rawSym);
+      const sym = this.resolvePulseBase(data as Record<string, unknown>, event);
+      if (sym == null) return;
 
       const price = priceValue.toLocaleString(undefined, {
         minimumFractionDigits: sym === 'BTC' ? 1 : 2,
