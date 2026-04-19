@@ -7,6 +7,7 @@ import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import multipart from "@fastify/multipart";
 import { initDatabase } from "./services/db";
+import { marketRegistry } from "./services/engines";
 import chatRoutes from "./routes/chat";
 import conversationsRoutes from "./routes/conversations";
 import modelsRoutes from "./routes/models";
@@ -17,18 +18,20 @@ import marketRoutes from "./routes/market";
 import { marketStream } from "./services/marketStream";
 import { startFuturesAutomation, stopFuturesAutomation } from "./services/futuresAutomation";
 
-const app = Fastify({ 
+const app = Fastify({
   logger: true,
   ignoreTrailingSlash: true
 });
 
 async function start() {
   await initDatabase();
+  // Start periodic instrument universe sync (non-blocking — failure is logged, not fatal)
+  marketRegistry.start().catch((e) => console.error('[market-registry] startup error:', e));
 
   await app.register(cors);
   await app.register(websocket);
   await app.register(multipart);
-  
+
   await app.register(authRoutes, { prefix: "/auth" });
   await app.register(chatRoutes, { prefix: "/chat" });
   await app.register(conversationsRoutes, { prefix: "/conversations" });
@@ -46,7 +49,7 @@ async function start() {
   const port = Number(process.env.PORT) || 4000;
   try {
     await app.listen({ port, host: "0.0.0.0" });
-    console.log(`Server listening on http://localhost:${port}`);
+    console.log(`Server listening on http://localhost${port}`);
     marketStream.start();
     startFuturesAutomation(app.log);
   } catch (err) {
@@ -61,6 +64,7 @@ const shutdown = async (signal: string) => {
   const forceExit = setTimeout(() => process.exit(0), 2_000);
   forceExit.unref(); // don't keep process alive if close finishes first
   try {
+    marketRegistry.stop();
     stopFuturesAutomation();
     marketStream.stop();
     await app.close();

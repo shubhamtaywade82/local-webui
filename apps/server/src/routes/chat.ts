@@ -28,6 +28,22 @@ import {
   fetchPublicOhlcv,
 } from "@workspace/tools";
 import { db } from "../services/db";
+import {
+  marketRegistry,
+  timeframeEngine,
+  signalEngine,
+  riskEngine,
+  executionEngine,
+} from "../services/engines";
+import {
+  UniverseTool,
+  InstrumentTool,
+  MultiTfContextTool,
+  AnalysisSetupTool,
+  SimulateOrderTool,
+  PlaceOrderTool,
+  PositionStateTool,
+} from "@workspace/agent-tools";
 import { summarizeConversation } from "../services/summarizer";
 import { knowledgeEngine } from "../services/knowledgeSingleton";
 
@@ -236,6 +252,14 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new CoinDCXFuturesTool());
   registry.register(new SmcAnalysisTool());
   registry.register(new TelegramAlertTool());
+  // Trading architecture tools — deterministic engines, LLM orchestrates only
+  registry.register(new UniverseTool(marketRegistry));
+  registry.register(new InstrumentTool(marketRegistry));
+  registry.register(new MultiTfContextTool(timeframeEngine));
+  registry.register(new AnalysisSetupTool(signalEngine));
+  registry.register(new SimulateOrderTool(signalEngine, riskEngine));
+  registry.register(new PlaceOrderTool(signalEngine, riskEngine, executionEngine));
+  registry.register(new PositionStateTool(executionEngine));
   return registry;
 }
 

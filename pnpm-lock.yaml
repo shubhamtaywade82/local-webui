@@ -60,15 +60,36 @@ importers:
       '@workspace/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
+      '@workspace/agent-tools':
+        specifier: workspace:*
+        version: link:../../packages/agent-tools
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../../packages/coindcx-client
+      '@workspace/execution-engine':
+        specifier: workspace:*
+        version: link:../../packages/execution-engine
       '@workspace/knowledge-engine':
         specifier: workspace:*
         version: link:../../packages/knowledge-engine
+      '@workspace/market-registry':
+        specifier: workspace:*
+        version: link:../../packages/market-registry
       '@workspace/ollama-client':
         specifier: workspace:*
         version: link:../../packages/ollama-client
+      '@workspace/risk-engine':
+        specifier: workspace:*
+        version: link:../../packages/risk-engine
+      '@workspace/signal-engine':
+        specifier: workspace:*
+        version: link:../../packages/signal-engine
       '@workspace/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@workspace/timeframe-engine':
+        specifier: workspace:*
+        version: link:../../packages/timeframe-engine
       '@workspace/tools':
         specifier: workspace:*
         version: link:../../packages/tools
@@ -92,7 +113,7 @@ importers:
         version: 6.37.8(pg-hstore@2.3.4)(pg@8.20.0)
       socket.io-client:
         specifier: ^4.8.1
-        version: 4.8.1
+        version: 4.8.3
       ws:
         specifier: ^8.20.0
         version: 8.20.0
@@ -214,6 +235,63 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.39)
 
+  packages/agent-tools:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+      '@workspace/execution-engine':
+        specifier: workspace:*
+        version: link:../execution-engine
+      '@workspace/market-registry':
+        specifier: workspace:*
+        version: link:../market-registry
+      '@workspace/risk-engine':
+        specifier: workspace:*
+        version: link:../risk-engine
+      '@workspace/signal-engine':
+        specifier: workspace:*
+        version: link:../signal-engine
+      '@workspace/timeframe-engine':
+        specifier: workspace:*
+        version: link:../timeframe-engine
+      '@workspace/tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+
+  packages/coindcx-client:
+    dependencies:
+      socket.io-client:
+        specifier: ^4.7.5
+        version: 4.8.3
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+
+  packages/execution-engine:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+      '@workspace/market-registry':
+        specifier: workspace:*
+        version: link:../market-registry
+      '@workspace/risk-engine':
+        specifier: workspace:*
+        version: link:../risk-engine
+      '@workspace/signal-engine':
+        specifier: workspace:*
+        version: link:../signal-engine
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+
   packages/knowledge-engine:
     dependencies:
       '@types/pg':
@@ -226,7 +304,49 @@ importers:
         specifier: ^8.20.0
         version: 8.20.0
 
+  packages/market-registry:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+
   packages/ollama-client: {}
+
+  packages/risk-engine:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+      '@workspace/market-registry':
+        specifier: workspace:*
+        version: link:../market-registry
+      '@workspace/signal-engine':
+        specifier: workspace:*
+        version: link:../signal-engine
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
+
+  packages/signal-engine:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+      '@workspace/timeframe-engine':
+        specifier: workspace:*
+        version: link:../timeframe-engine
+      '@workspace/tools':
+        specifier: workspace:*
+        version: link:../tools
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
 
   packages/telemetry:
     dependencies:
@@ -255,6 +375,16 @@ importers:
       typescript:
         specifier: ^5.4.5
         version: 5.9.3
+
+  packages/timeframe-engine:
+    dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.39
 
   packages/tools:
     dependencies:
@@ -2032,15 +2162,6 @@ packages:
     resolution: {integrity: sha512-0R9ikRb668HB7QDxT1vkpuUBtqc53YyAwMwGeUFKRojY/NWKvdZ+9UYtRfGmhqNbRkTSVpMbmyhXipFFv2cb/A==}
     engines: {node: '>= 12'}
 
-  debug@4.3.7:
-    resolution: {integrity: sha512-Er2nc/H7RrMXZBFCEim6TCmMk02Z8vLC2Rbi1KEBggpo0fS6l0S1nnapwmIi3yW/+GOJap1Krg4w0Hg80oCqgQ==}
-    engines: {node: '>=6.0'}
-    peerDependencies:
-      supports-color: '*'
-    peerDependenciesMeta:
-      supports-color:
-        optional: true
-
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
     engines: {node: '>=6.0'}
@@ -3221,8 +3342,8 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  socket.io-client@4.8.1:
-    resolution: {integrity: sha512-hJVXfu3E28NmzGk8o1sHhN3om52tRvwYeidbj7xKy2eIIse5IoKX3USlS6Tqt3BHAtflLIkCQBkzVrEEfWUyYQ==}
+  socket.io-client@4.8.3:
+    resolution: {integrity: sha512-uP0bpjWrjQmUt5DTHq9RuoCBdFJF10cdX9X+a368j/Ft0wmaVgxlrjvK3kjvgCODOMMOz9lcaRzxmso0bTWZ/g==}
     engines: {node: '>=10.0.0'}
 
   socket.io-parser@4.2.6:
@@ -5559,10 +5680,6 @@ snapshots:
 
   data-uri-to-buffer@4.0.1: {}
 
-  debug@4.3.7:
-    dependencies:
-      ms: 2.1.3
-
   debug@4.4.3:
     dependencies:
       ms: 2.1.3
@@ -7068,10 +7185,10 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  socket.io-client@4.8.1:
+  socket.io-client@4.8.3:
     dependencies:
       '@socket.io/component-emitter': 3.1.2
-      debug: 4.3.7
+      debug: 4.4.3
       engine.io-client: 6.6.4
       socket.io-parser: 4.2.6
     transitivePeerDependencies:
