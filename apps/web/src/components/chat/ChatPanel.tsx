@@ -1,8 +1,11 @@
 import { useRef, useEffect } from 'react';
-import { useChatStore } from '../../stores/useChatStore';
+import { useChatStore, type Message } from '../../stores/useChatStore';
+import { useStickToBottomScroll } from '../../hooks/useStickToBottomScroll';
 import MessageBubble from './MessageBubble';
 import ChatInput from './ChatInput';
 import { Sparkles, ArrowRight, BookOpen, Code2, Brain, BarChart3 } from 'lucide-react';
+
+const EMPTY_MESSAGES: Message[] = [];
 
 const SUGGESTIONS = [
   { label: 'Intraday Trend', prompt: 'What is the current intraday trend of B-ETH_USDT?', icon: BarChart3, color: '#60a5fa' },
@@ -14,16 +17,28 @@ const SUGGESTIONS = [
 export default function ChatPanel() {
   const { state, activeConversation, sendMessage, createNewConversation } = useChatStore();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const messages = activeConversation?.messages ?? [];
+  const lastUserMessageIdRef = useRef<string | null>(null);
+  const messages = activeConversation?.messages ?? EMPTY_MESSAGES;
   const isStreaming = state.streamingState === 'streaming' || state.streamingState === 'thinking';
   const showWelcome = messages.length === 0;
 
-  // Auto-scroll
+  const { pinToBottom } = useStickToBottomScroll(scrollRef, [
+    messages,
+    messages[messages.length - 1]?.content,
+    activeConversation?.agentSteps?.length,
+  ]);
+
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const last = messages[messages.length - 1];
+    if (last?.role === 'user' && last.id !== lastUserMessageIdRef.current) {
+      lastUserMessageIdRef.current = last.id;
+      pinToBottom();
     }
-  }, [messages, messages[messages.length - 1]?.content, activeConversation?.agentSteps?.length]);
+  }, [messages, pinToBottom]);
+
+  useEffect(() => {
+    lastUserMessageIdRef.current = null;
+  }, [activeConversation?.id]);
 
   const handleSuggestion = (prompt: string) => {
     if (!activeConversation) createNewConversation();

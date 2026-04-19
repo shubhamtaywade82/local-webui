@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import MessageBubble from '../components/chat/MessageBubble';
 import ChatInput from '../components/chat/ChatInput';
 import type { Message, ProviderMode } from '../stores/useChatStore';
+import { useStickToBottomScroll } from '../hooks/useStickToBottomScroll';
 
 const CONV_KEY = 'simple-chat-conversation-id';
 
@@ -45,11 +46,7 @@ export default function SimpleChatPage() {
       })()
   );
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+  const { pinToBottom } = useStickToBottomScroll(scrollRef, [messages]);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -74,6 +71,9 @@ export default function SimpleChatPage() {
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setStreamingState('thinking');
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => pinToBottom());
+      });
 
       const token = getAuthToken();
       const ws = new WebSocket(
@@ -147,7 +147,7 @@ export default function SimpleChatPage() {
         );
       };
     },
-    [messages, streamingState, thinking]
+    [messages, streamingState, thinking, pinToBottom]
   );
 
   const isBusy = streamingState === 'streaming' || streamingState === 'thinking';
