@@ -5,12 +5,24 @@ import {
 import { type Message } from '../../stores/useChatStore';
 import { useEditorStore } from '../../stores/useEditorStore';
 import MarkdownRenderer from './MarkdownRenderer';
+import {
+  formatAssistantAgentOutput,
+  looksLikeAgentEnvelope,
+  extractAgentFinishThought,
+} from '@workspace/agent-runtime/extractFinishAnswer';
 
-function ThinkingSection({ content }: { content: string }) {
+function ThinkingSection({
+  content,
+  plainThinking,
+}: {
+  content: string;
+  /** When set, shown instead of parsing `content` for `redacted_thinking` tags (e.g. agent JSON `thought`). */
+  plainThinking?: string | null;
+}) {
   const [isOpen, setIsOpen] = useState(false);
-  const thinkMatch = content.match(/<think>([\s\S]*?)(?:<\/redacted_thinking>|$)/);
-  if (!thinkMatch) return null;
-  const thinkContent = thinkMatch[1].trim();
+  const thinkContent = plainThinking?.trim()
+    || content.match(/<think>([\s\S]*?)(?:<\/redacted_thinking>|$)/)?.[1]?.trim()
+    || '';
   if (!thinkContent) return null;
 
   return (
@@ -69,6 +81,16 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     .replace(/<think>[\s\S]*?(?:<\/redacted_thinking>|$)/g, '')
     .trim();
 
+  const assistantMarkdownSource =
+    !isUser && looksLikeAgentEnvelope(cleanContent)
+      ? formatAssistantAgentOutput(cleanContent)
+      : cleanContent;
+
+  const agentJsonThought =
+    !isUser && looksLikeAgentEnvelope(message.content) ? extractAgentFinishThought(message.content) : null;
+  const hasTaggedThinking = message.content.includes('<think>');
+  const showThinking = !isUser && (hasTaggedThinking || Boolean(agentJsonThought));
+
   return (
     <div
       className={`flex items-start gap-3 animate-fade-in ${isUser ? 'flex-row-reverse' : ''}`}
@@ -106,13 +128,16 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             <div className="text-sm whitespace-pre-wrap text-left">{message.content}</div>
           ) : (
             <>
-              {message.content.includes('<think>') && (
-                <ThinkingSection content={message.content} />
+              {showThinking && (
+                <ThinkingSection
+                  content={message.content}
+                  plainThinking={hasTaggedThinking ? null : agentJsonThought}
+                />
               )}
 
               {/* Markdown Content */}
               <div className="prose-dark text-sm">
-                <MarkdownRenderer content={cleanContent} />
+                <MarkdownRenderer content={assistantMarkdownSource} />
               </div>
 
               {/* Streaming cursor */}
@@ -161,7 +186,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           )}
 
           {/* Actions (assistant only, on hover) */}
-          {!isUser && !message.isStreaming && cleanContent && (
+          {!isUser && !message.isStreaming && assistantMarkdownSource && (
             <div className="absolute -bottom-3 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
               <button
                 onClick={handleCopy}

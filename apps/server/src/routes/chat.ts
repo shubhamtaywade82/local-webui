@@ -291,8 +291,11 @@ function handleWs(connection: any, req: any) {
       const {
         messages, model, conversation_id, systemPrompt: customSystemPrompt,
         thinking, agentMode, maxIterations, agentStepMode, token: payloadToken,
-        provider
+        provider,
+        /** When false, only the latest user message is sent to the model (no DB thread / no client history). Default true. */
+        includeConversationHistory,
       } = payload;
+      const sendConversationHistory = includeConversationHistory !== false;
       const requestedProvider = resolveOllamaProvider(provider);
       const requestedModel =
         typeof model === "string" && model.trim()
@@ -332,22 +335,26 @@ function handleWs(connection: any, req: any) {
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
       // 2. Prepare Context (History) — use cached summary, re-summarize only every 5 new messages
-      const history = await db.getMessages(currentConversationId);
+      let history: Array<{ role: string; content: string }> = [];
       let historyContext = "";
-      if (history.length > 10) {
-        const cached = await db.getSummary(currentConversationId);
-        const needsRefresh = !cached || history.length >= cached.messageCount + 5;
-        if (needsRefresh) {
-          const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
-          const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
-          await db.upsertSummary(currentConversationId, summary, history.length, {
-            title: conversationTitle,
-            model: requestedModel,
-            userId,
-          });
-          historyContext = `Conversation Summary:\n${summary}`;
-        } else {
-          historyContext = `Conversation Summary:\n${cached.summary}`;
+      if (sendConversationHistory) {
+        const rows = await db.getMessages(currentConversationId);
+        history = rows.map((m: any) => ({ role: m.role, content: m.content }));
+        if (history.length > 10) {
+          const cached = await db.getSummary(currentConversationId);
+          const needsRefresh = !cached || history.length >= cached.messageCount + 5;
+          if (needsRefresh) {
+            const historyText = history.map((m) => `${m.role}: ${m.content}`).join("\n");
+            const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
+            await db.upsertSummary(currentConversationId, summary, history.length, {
+              title: conversationTitle,
+              model: requestedModel,
+              userId,
+            });
+            historyContext = `Conversation Summary:\n${summary}`;
+          } else {
+            historyContext = `Conversation Summary:\n${cached.summary}`;
+          }
         }
       }
 
@@ -360,7 +367,7 @@ If not found in context, answer normally.
 AVAILABLE LOCAL FILES:
 ${availableFiles.join(", ") || "No local files indexed."}
 
-${historyContext}
+${sendConversationHistory ? historyContext : ''}
 
 CONTEXT FROM DOCUMENTS:
 ${contextString || "No specific content match found in local knowledge."}
@@ -398,7 +405,9 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
       }
 
       const systemPromptMsg = { role: 'system', content: systemPromptText };
-      const finalMessages = [systemPromptMsg, ...messages];
+      const finalMessages = sendConversationHistory
+        ? [systemPromptMsg, ...messages]
+        : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
 
       // 4. Persist user message
       await db.saveMessage(currentConversationId, 'user', lastUserMessage);
@@ -454,7 +463,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         try {
           await withSpan('chat', 'agent.run', () => runtime.run(
             lastUserMessage,
-            history.map((m: any) => ({ role: m.role, content: m.content })),
+            sendConversationHistory ? history : [],
             (event: LoopEvent) => {
               if (event.type === 'token') {
                 const token = String((event.payload as any).token ?? '');

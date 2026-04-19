@@ -122,6 +122,27 @@ export class OllamaClient {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      /** Wrap native `message.thinking` so the chat UI can show it in the same collapsible block as prompt-based thinking. */
+      let insideNativeThinking = false;
+      const closeNativeThinking = () => {
+        if (insideNativeThinking) {
+          onToken("</think>");
+          insideNativeThinking = false;
+        }
+      };
+      const emitNativeThinking = (t: string) => {
+        if (!t) return;
+        if (!insideNativeThinking) {
+          onToken("<think>");
+          insideNativeThinking = true;
+        }
+        onToken(t);
+      };
+      const emitContent = (t: string) => {
+        if (!t) return;
+        closeNativeThinking();
+        onToken(t);
+      };
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -138,12 +159,13 @@ export class OllamaClient {
             // Native thinking models stream reasoning in `thinking` and the answer in `content`.
             // Older models / prompt-only "thinking" use `content` only.
             if (msg?.thinking) {
-              onToken(msg.thinking);
+              emitNativeThinking(msg.thinking);
             }
             if (msg?.content) {
-              onToken(msg.content);
+              emitContent(msg.content);
             }
             if (data.done) {
+              closeNativeThinking();
               console.log("[OllamaClient] Done signal received");
               return; // End the stream early
             }
@@ -159,12 +181,13 @@ export class OllamaClient {
             : buffer.trim();
           const data = JSON.parse(tail);
           const msg = data.message;
-          if (msg?.thinking) onToken(msg.thinking);
-          if (msg?.content) onToken(msg.content);
+          if (msg?.thinking) emitNativeThinking(msg.thinking);
+          if (msg?.content) emitContent(msg.content);
         } catch (err) {
           // ignore
         }
       }
+      closeNativeThinking();
       console.log("[OllamaClient] Streaming finished successfully");
     } catch (err) {
       console.error("[OllamaClient] Fetch error:", err);

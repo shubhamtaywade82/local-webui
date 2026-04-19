@@ -27,7 +27,11 @@ export class InstrumentTool extends BaseTool {
     if (!isCoinDcxFuturesPair(pair)) {
       return JSON.stringify({ error: `Invalid futures pair "${pair}". Use B-XXX_USDT format.` });
     }
-    const meta = this.registry.getInstrument(pair);
+    let meta = this.registry.getInstrument(pair);
+    if (!meta) {
+      await this.registry.ensureWarm();
+      meta = this.registry.getInstrument(pair);
+    }
     if (!meta) {
       return JSON.stringify({ error: `No metadata for ${pair}. It may not be active.` });
     }

@@ -16,9 +16,14 @@ export class UniverseTool extends BaseTool {
   constructor(private registry: MarketRegistry) { super(); }
 
   async execute(_args: Record<string, unknown>): Promise<string> {
+    await this.registry.ensureWarm();
     const instruments = this.registry.getAllActive();
     if (!instruments.length) {
-      return JSON.stringify({ error: 'Registry is empty — run market registry refresh first.' });
+      return JSON.stringify({
+        error:
+          'Registry is still empty after refresh (network or CoinDCX API issue). ' +
+          'Use coindcx tool with action=futures_instruments to list pairs, or retry later.',
+      });
     }
     const summary = instruments.map((m) => ({
       pair:         m.pair,

@@ -100,6 +100,15 @@ export class MarketRegistry {
     return Array.from(this.cache.values()).filter((m) => m.status === 'active');
   }
 
+  /**
+   * When the cache has no active instruments (startup race, first refresh failure, or cold DB),
+   * run a single refresh so tools like get_active_futures_universe do not fail spuriously.
+   */
+  async ensureWarm(): Promise<void> {
+    if (this.getAllActive().length > 0) return;
+    await this.refresh();
+  }
+
   isStale(pair: string, maxAgeMs = DEFAULT_TTL_MS): boolean {
     const meta = this.cache.get(pair);
     if (!meta) return true;

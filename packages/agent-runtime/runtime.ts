@@ -2,6 +2,7 @@ import { OllamaClient } from '@workspace/ollama-client';
 import { ToolRegistry } from '@workspace/tools';
 import { AgentConfig, EventEmitter, StepApprovalFn } from './types';
 import { humanizeToolDone, humanizeToolRunning } from './humanizeAgentActivity';
+import { tryExtractFinishToolCall, decodeLiteralEscapeSequencesInAnswer } from './extractFinishAnswer';
 
 interface ToolCall {
   thought: string;
@@ -62,13 +63,14 @@ RULES (STRICT):
 7. **No immediate repeats**: After a tool succeeds, never call that tool again with the **same** arguments on the very next step — use **finish** instead. The runtime will block duplicate consecutive calls and remind you.
 8. **Public market data**: Never use coindcx_futures for price/trend/candles. Use coindcx or smc_analysis.
 9. **Spot vs Futures**: Futures OHLCV/SMC always use **B-BASE_USDT** or **B-BASE_INR**.
-10. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.`;
+10. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.
+11. **finish tool — valid JSON only**: \`args.answer\` MUST be a single JSON string. Escape every double-quote as \\", newline as \\n, backslash as \\\\. Do not put raw markdown code fences or multi-line prose inside \`answer\` unless fully escaped as string content. Never wrap the whole response in \`\`\`json fences.`;
 }
 
 function preprocessContent(content: string): string {
   // Strip common thinking/reasoning tags that might contain conflicting braces
   return content
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
     .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
     .trim();
@@ -125,6 +127,15 @@ function parseToolCall(content: string): ToolCall | null {
         }
       } catch {}
     }
+  }
+
+  const recoveredFinish = tryExtractFinishToolCall(cleanedContent);
+  if (recoveredFinish) {
+    return {
+      thought: recoveredFinish.thought,
+      tool: recoveredFinish.tool,
+      args: recoveredFinish.args,
+    };
   }
 
   return null;
@@ -229,10 +240,17 @@ export class AgentRuntime {
             iteration
           }
         });
-        const answer = String(toolCall.args.answer ?? '');
+        const answer = decodeLiteralEscapeSequencesInAnswer(String(toolCall.args.answer ?? ''));
+        const thoughtRaw = String(toolCall.thought ?? '').trim();
+        const thoughtSafe = thoughtRaw.replace(/<\/redacted_thinking>/gi, '');
+        const prefix =
+          thoughtSafe.length > 0
+            ? `<think>\n${thoughtSafe}\n</think>\n\n`
+            : '';
         const chunkSize = 80;
-        for (let i = 0; i < answer.length; i += chunkSize) {
-          emit({ type: 'token', payload: { token: answer.slice(i, i + chunkSize) } });
+        const fullOut = prefix + answer;
+        for (let i = 0; i < fullOut.length; i += chunkSize) {
+          emit({ type: 'token', payload: { token: fullOut.slice(i, i + chunkSize) } });
         }
         emit({ type: 'done', payload: { iteration } });
         return;
