@@ -9,6 +9,26 @@ interface ToolCall {
   args: Record<string, unknown>;
 }
 
+/** Stable fingerprint so key order in args does not bypass duplicate detection. */
+function toolArgsFingerprint(args: Record<string, unknown>): string {
+  const sortedKeys = Object.keys(args).sort();
+  const normalized: Record<string, unknown> = {};
+  for (const k of sortedKeys) {
+    normalized[k] = args[k];
+  }
+  return JSON.stringify(normalized);
+}
+
+function toolResultLooksLikeError(result: string): boolean {
+  return result.startsWith('Error:') || result.startsWith('Tool error:');
+}
+
+const DUPLICATE_TOOL_MESSAGE = (tool: string) =>
+  `Duplicate skipped: ${tool} was already run successfully with the same arguments in the immediately previous tool step. ` +
+  `The conversation already contains that tool output above — do not repeat it. ` +
+  `Your next response MUST be JSON with "tool":"finish" and "args":{"answer":"..."} summarizing that prior output, ` +
+  `unless you need different arguments or a different tool.`;
+
 function buildSystemPrompt(schemas: ReturnType<ToolRegistry['schemas']>): string {
   const toolList = schemas.map(s => {
     const argStr = Object.entries(s.args)
@@ -32,15 +52,17 @@ When the task is complete, use the "finish" tool:
 RULES (STRICT):
 1. Respond WITH ONLY JSON. DO NOT include markdown code blocks (\`\`\`json).
 2. DO NOT include any conversational prose before or after the JSON.
-3. **SYMBOL VERIFICATION PROTOCOL (DETERMINISTIC)**:
+3. **TOOL NAMES**: Use each tool's exact name as listed above (lowercase snake_case), e.g. \`smc_analysis\` — never PascalCase like \`SMC_analysis\` and never treat tools as code functions.
+4. **SYMBOL VERIFICATION PROTOCOL (DETERMINISTIC)**:
    - If a tool returns a "Symbol not found" or "No match" error: **DO NOT GUESS**.
    - Your NEXT step MUST be: call **coindcx** with action="futures_instruments" (for futures) or action="markets" (for spot) to find the correct canonical name.
    - Once found, use the exact canonical name in your next tool call.
-4. **NO PSEUDO-CODE**: Never output Ruby, XML, or any scripting content. Respond ONLY with valid JSON.
-5. **Minimize tool calls**: pick the **one** tool that answers the question; avoid calling the same tool twice with the same intent unless the first result was an error you can fix.
-6. **Public market data**: Never use coindcx_futures for price/trend/candles. Use coindcx or smc_analysis.
-7. **Spot vs Futures**: Futures OHLCV/SMC always use **B-BASE_USDT** or **B-BASE_INR**.
-8. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.`;
+5. **NO PSEUDO-CODE**: Never output Ruby, XML, or any scripting content. Respond ONLY with valid JSON.
+6. **Minimize tool calls**: pick the **one** tool that answers the question; avoid calling the same tool twice with the same intent unless the first result was an error you can fix.
+7. **No immediate repeats**: After a tool succeeds, never call that tool again with the **same** arguments on the very next step — use **finish** instead. The runtime will block duplicate consecutive calls and remind you.
+8. **Public market data**: Never use coindcx_futures for price/trend/candles. Use coindcx or smc_analysis.
+9. **Spot vs Futures**: Futures OHLCV/SMC always use **B-BASE_USDT** or **B-BASE_INR**.
+10. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.`;
 }
 
 function preprocessContent(content: string): string {
@@ -129,6 +151,7 @@ export class AgentRuntime {
     ];
 
     let iteration = 0;
+    let lastSuccessfulToolFingerprint: { tool: string; argsKey: string } | null = null;
 
     while (iteration < this.config.maxIterations) {
       iteration++;
@@ -185,6 +208,16 @@ export class AgentRuntime {
         return;
       }
 
+      const trimmedTool = toolCall.tool.trim();
+      if (trimmedTool.toLowerCase() === 'finish') {
+        toolCall = { ...toolCall, tool: 'finish' };
+      } else {
+        const resolvedTool = this.tools.canonicalToolName(trimmedTool);
+        if (resolvedTool && resolvedTool !== toolCall.tool) {
+          toolCall = { ...toolCall, tool: resolvedTool };
+        }
+      }
+
       if (toolCall.tool === 'finish') {
         emit({
           type: 'agent_step',
@@ -238,14 +271,28 @@ export class AgentRuntime {
 
       let toolResult: string;
       const toolStart = Date.now();
+      const argsKey = toolArgsFingerprint(toolCall.args);
+      const isDuplicateConsecutiveSuccess =
+        lastSuccessfulToolFingerprint !== null &&
+        lastSuccessfulToolFingerprint.tool === toolCall.tool &&
+        lastSuccessfulToolFingerprint.argsKey === argsKey;
+
       try {
         if (!this.tools.has(toolCall.tool)) {
           toolResult = `Error: Tool "${toolCall.tool}" not found.`;
+        } else if (isDuplicateConsecutiveSuccess) {
+          toolResult = DUPLICATE_TOOL_MESSAGE(toolCall.tool);
         } else {
           toolResult = await this.tools.execute(toolCall.tool, toolCall.args);
         }
       } catch (e) {
         toolResult = `Tool error: ${(e as Error).message}`;
+      }
+
+      if (!toolResultLooksLikeError(toolResult) && !isDuplicateConsecutiveSuccess) {
+        lastSuccessfulToolFingerprint = { tool: toolCall.tool, argsKey };
+      } else if (toolResultLooksLikeError(toolResult)) {
+        lastSuccessfulToolFingerprint = null;
       }
 
       const duration = Date.now() - toolStart;

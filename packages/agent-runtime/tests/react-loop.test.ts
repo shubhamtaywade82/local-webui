@@ -4,6 +4,7 @@ import { ToolRegistry, BaseTool, ToolSchema } from '@workspace/tools';
 import { AgentConfig, EventEmitter } from '../types';
 
 class MockTool extends BaseTool {
+  executionCount = 0;
   readonly name = 'mock_tool';
   readonly description = 'Mock tool for testing';
   readonly schema: ToolSchema = {
@@ -12,6 +13,7 @@ class MockTool extends BaseTool {
     args: { input: { type: 'string', description: 'input', required: true } }
   };
   async execute(args: Record<string, unknown>): Promise<string> {
+    this.executionCount++;
     return `mock result: ${args.input}`;
   }
 }
@@ -60,6 +62,23 @@ describe('AgentRuntime', () => {
 
     await runtime.run('Use mock tool', [], emit);
     expect(steps).toContain('mock_tool');
+  });
+
+  it('does not execute the same tool twice in a row with identical args', async () => {
+    const registry = new ToolRegistry();
+    const mock = new MockTool();
+    registry.register(mock);
+    const ollama = mockOllama([
+      { tool: 'mock_tool', args: { input: 'same' }, thought: 'first' },
+      { tool: 'mock_tool', args: { input: 'same' }, thought: 'duplicate' },
+      { tool: 'finish', args: { answer: 'done' }, thought: 'finish' }
+    ]);
+    const config: AgentConfig = { model: 'test', maxIterations: 10, mode: 'auto' };
+    const runtime = new AgentRuntime(ollama as any, registry, config);
+
+    await runtime.run('test', [], () => {});
+
+    expect(mock.executionCount).toBe(1);
   });
 
   it('stops at maxIterations', async () => {

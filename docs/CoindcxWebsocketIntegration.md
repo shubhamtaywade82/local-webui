@@ -2258,6 +2258,11 @@ Do not let strategies mutate websocket internals. They should only read from cac
 * confirm candle/depth/trade parsing works for both spot and futures channels
 * confirm private subscription requires credentials
 
+### Automated (this repo)
+
+* `pnpm --filter @workspace/coindcx-client test` — runs unit tests plus an HTTP check that `https://public.coindcx.com/market_data/v3/current_prices/futures/rt` returns `prices.B-BTC_USDT` (same contract the Market Pulse HTTP fallback uses). No API keys; needs outbound HTTPS.
+* `COINDCX_LIVE_E2E=1 pnpm --filter @workspace/coindcx-client exec vitest run stream/coindcx-live.e2e.test.ts` — live Socket.IO **v2** client to `wss://stream.coindcx.com`, `join` on `B-BTC_USDT@prices-futures` and on `currentPrices@futures@rt`, asserts at least one forwarded price event. Requires outbound network.
+
 If you want the next step, I’ll turn this into a complete repo-grade package with tests, a Rails webhook sink, and a depth-delta reconciler.
 
 [1]: https://docs.coindcx.com/?utm_source=chatgpt.com "Terms and Conditions – API Reference - CoinDCX"

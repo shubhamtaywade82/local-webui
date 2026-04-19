@@ -29,6 +29,14 @@ const NOISE_EVENTS = new Set([
   'reconnect_failed',
 ]);
 
+/** Already handled by explicit `this.engine.on(...)` — skip onevent tap to avoid double updates. */
+const ENGINE_FORWARDED_PRICE_EVENTS = new Set([
+  'price-change',
+  'prices',
+  'currentPrices@futures#update',
+  'currentPrices@spot#update',
+]);
+
 /** Market Pulse grid only shows these bases — never emit updates with other `sym` keys. */
 const PULSE_BASES = new Set(['BTC', 'ETH', 'SOL']);
 
@@ -54,7 +62,7 @@ class MarketStream extends EventEmitter {
   }
 
   start() {
-    if (this.wss) return;
+    if (this.wss || this.engine) return;
 
     this.wss = new WebSocketServer({ port: 4002 });
 
@@ -146,10 +154,13 @@ class MarketStream extends EventEmitter {
       const tuple = p.data;
       if (Array.isArray(tuple) && tuple.length >= 2) {
         const [event, data] = tuple;
-        if (typeof event === 'string' && !NOISE_EVENTS.has(event)) {
-          if (event === 'price-change' || event === 'informant' || event.includes('update')) {
-            this.handlePriceUpdate(event, data, 'stream');
-          }
+        if (
+          typeof event === 'string' &&
+          !NOISE_EVENTS.has(event) &&
+          !ENGINE_FORWARDED_PRICE_EVENTS.has(event) &&
+          (event === 'informant' || event.includes('update'))
+        ) {
+          this.handlePriceUpdate(event, data, 'stream');
         }
       }
       originalEmit(packet);

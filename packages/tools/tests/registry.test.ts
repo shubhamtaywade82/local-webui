@@ -28,6 +28,15 @@ describe('ToolRegistry', () => {
     await expect(registry.execute('missing', {})).rejects.toThrow('Tool "missing" not found');
   });
 
+  it('resolves tool names case-insensitively', async () => {
+    const registry = new ToolRegistry();
+    registry.register(new EchoTool());
+    expect(registry.canonicalToolName('Echo')).toBe('echo');
+    expect(registry.has('ECHO')).toBe(true);
+    const result = await registry.execute('ECHO', { message: 'hi' });
+    expect(result).toBe('hi');
+  });
+
   it('returns schemas array', () => {
     const registry = new ToolRegistry();
     registry.register(new EchoTool());

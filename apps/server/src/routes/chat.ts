@@ -385,7 +385,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
       if (lastUserMessage.includes("[STRATEGY_MODE: SMC]")) {
         systemPromptText += `\n\nSTRATEGY DIRECTIVE: SMC ANALYSIS MODE
 - Priorities: Market Structure (BoS/ChoCh), Order Blocks, and Fair Value Gaps.
-- Mandatory: Use 'smc_analysis' tool first. 
+- Mandatory: Call 'smc_analysis' **once** when you need SMC context (same symbol/timeframes/params). After a successful result, your **next** step must be **finish** (or a different tool/args if the task requires it) — never repeat smc_analysis with identical parameters on the next turn.
 - Determinism: Follow the "Lookup-on-Error" protocol strictly if symbols mismatch.
 - Alerts: If a high-confidence setup is found, you MUST use the 'telegram_alert' tool to notify the user.`;
       } else if (lastUserMessage.includes("[STRATEGY_MODE: TREND]")) {
