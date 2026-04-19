@@ -385,7 +385,7 @@ To use it, strictly follow this format in your response:
       if (thinking) {
         systemPromptText += `\n\nTHINKING MODE ENABLED:
 You MUST reason step-by-step before providing your final answer.
-Wrap your internal reasoning process entirely within <think>...</think> tags.`;
+Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
       }
 
       // ── Strategic Mode Overrides ──
@@ -563,10 +563,10 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
 
               connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
 
-              if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
+              if (buffer.includes("<redacted_thinking>") && !stepsEmitted.has('thinking')) {
                 emitStep('thinking', 'Reasoning step-by-step', 'running');
               }
-              if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
+              if (buffer.includes("</redacted_thinking>") && !stepsEmitted.has('thinking-done')) {
                 emitStep('thinking', 'Reasoning complete', 'success');
                 stepsEmitted.add('thinking-done');
               }

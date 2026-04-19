@@ -126,14 +126,14 @@ export class OllamaClient {
       let insideNativeThinking = false;
       const closeNativeThinking = () => {
         if (insideNativeThinking) {
-          onToken("</think>");
+          onToken("</redacted_thinking>");
           insideNativeThinking = false;
         }
       };
       const emitNativeThinking = (t: string) => {
         if (!t) return;
         if (!insideNativeThinking) {
-          onToken("<think>");
+          onToken("<redacted_thinking>");
           insideNativeThinking = true;
         }
         onToken(t);

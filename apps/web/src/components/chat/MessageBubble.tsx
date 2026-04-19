@@ -11,18 +11,81 @@ import {
   extractAgentFinishThought,
 } from '@workspace/agent-runtime/extractFinishAnswer';
 
-function ThinkingSection({
-  content,
-  plainThinking,
-}: {
-  content: string;
-  /** When set, shown instead of parsing `content` for `redacted_thinking` tags (e.g. agent JSON `thought`). */
-  plainThinking?: string | null;
-}) {
+const THINK_OPEN = '<' + 'redacted_thinking' + '>';
+const THINK_CLOSE = '<' + '/' + 'redacted_thinking' + '>';
+/** Legacy alias some models still emit (older prompts / Ollama wrappers). */
+const LEGACY_THINK_OPEN = '<' + 'think' + '>';
+const LEGACY_THINK_CLOSE = '<' + '/' + 'think' + '>';
+/** DeepSeek-style chain-of-thought tags (distinct from short `<think>`). */
+const REASONING_OPEN = '<' + 'reason' + 'ing' + '>';
+const REASONING_CLOSE = '<' + '/' + 'reason' + 'ing' + '>';
+/** Harmony-style handoff from analysis/reasoning to user-visible final channel. */
+const HARMONY_FINAL_MARKERS = [
+  '<|start|>assistant<|channel|>final<|message|>',
+  '<|channel|>final<|message|>',
+] as const;
+
+function findThinkingOpen(raw: string): { idx: number; len: number } | null {
+  let best: { idx: number; len: number } | null = null;
+  for (const [needle, len] of [
+    [THINK_OPEN, THINK_OPEN.length] as const,
+    [LEGACY_THINK_OPEN, LEGACY_THINK_OPEN.length] as const,
+    [REASONING_OPEN, REASONING_OPEN.length] as const,
+  ]) {
+    const i = raw.indexOf(needle);
+    if (i !== -1 && (best === null || i < best.idx)) best = { idx: i, len };
+  }
+  return best;
+}
+
+function findThinkingEnd(afterOpen: string): { idx: number; len: number } | null {
+  let best: { idx: number; len: number } | null = null;
+  const needles: string[] = [
+    THINK_CLOSE,
+    LEGACY_THINK_CLOSE,
+    REASONING_CLOSE,
+    ...HARMONY_FINAL_MARKERS,
+  ];
+  for (const needle of needles) {
+    const i = afterOpen.indexOf(needle);
+    if (i !== -1 && (best === null || i < best.idx)) best = { idx: i, len: needle.length };
+  }
+  return best;
+}
+
+/**
+ * Split prompt-style thinking from the answer. Recognizes redacted_thinking / short think / reasoning
+ * XML blocks, Harmony final-channel markers, and heading-based fallback while the close tag is still streaming.
+ */
+function splitRedactedThinking(raw: string): { thinking: string | null; body: string } {
+  const open = findThinkingOpen(raw);
+  if (!open) return { thinking: null, body: raw };
+
+  const { idx: openIdx, len: openLen } = open;
+  const afterOpen = raw.slice(openIdx + openLen);
+
+  const end = findThinkingEnd(afterOpen);
+  if (end) {
+    const thinking = afterOpen.slice(0, end.idx).trim();
+    const body = (raw.slice(0, openIdx) + afterOpen.slice(end.idx + end.len)).trim();
+    return { thinking: thinking.length > 0 ? thinking : null, body };
+  }
+
+  const headingBreak = afterOpen.match(/\r?\n(?:\r?\n)?(?=#{1,6}\s+\S)/);
+  if (headingBreak && headingBreak.index !== undefined && headingBreak.index > 0) {
+    const thinking = afterOpen.slice(0, headingBreak.index).trim();
+    const rest = afterOpen.slice(headingBreak.index).replace(/^\r?\n+/, '');
+    const body = (raw.slice(0, openIdx) + rest).trim();
+    return { thinking: thinking.length > 0 ? thinking : null, body };
+  }
+
+  const body = (raw.slice(0, openIdx) + afterOpen).trim();
+  return { thinking: null, body };
+}
+
+function ThinkingSection({ thinkingText }: { thinkingText: string }) {
   const [isOpen, setIsOpen] = useState(false);
-  const thinkContent = plainThinking?.trim()
-    || content.match(/<think>([\s\S]*?)(?:<\/redacted_thinking>|$)/)?.[1]?.trim()
-    || '';
+  const thinkContent = thinkingText.trim();
   if (!thinkContent) return null;
 
   return (
@@ -77,19 +140,23 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const cleanContent = message.content
-    .replace(/<think>[\s\S]*?(?:<\/redacted_thinking>|$)/g, '')
-    .trim();
+  const { thinking: splitThinking, body: bodyAfterThinking } = !isUser
+    ? splitRedactedThinking(message.content)
+    : { thinking: null as string | null, body: message.content };
+
+  const agentJsonThought =
+    !isUser && looksLikeAgentEnvelope(message.content) ? extractAgentFinishThought(message.content) : null;
+
+  const displayThinking =
+    splitThinking && splitThinking.length > 0 ? splitThinking : agentJsonThought?.trim() || null;
+  const showThinking = !isUser && Boolean(displayThinking);
+
+  const cleanContent = bodyAfterThinking.trim();
 
   const assistantMarkdownSource =
     !isUser && looksLikeAgentEnvelope(cleanContent)
       ? formatAssistantAgentOutput(cleanContent)
       : cleanContent;
-
-  const agentJsonThought =
-    !isUser && looksLikeAgentEnvelope(message.content) ? extractAgentFinishThought(message.content) : null;
-  const hasTaggedThinking = message.content.includes('<think>');
-  const showThinking = !isUser && (hasTaggedThinking || Boolean(agentJsonThought));
 
   return (
     <div
@@ -128,11 +195,8 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             <div className="text-sm whitespace-pre-wrap text-left">{message.content}</div>
           ) : (
             <>
-              {showThinking && (
-                <ThinkingSection
-                  content={message.content}
-                  plainThinking={hasTaggedThinking ? null : agentJsonThought}
-                />
+              {showThinking && displayThinking && (
+                <ThinkingSection thinkingText={displayThinking} />
               )}
 
               {/* Markdown Content */}

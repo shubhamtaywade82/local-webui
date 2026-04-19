@@ -70,7 +70,7 @@ RULES (STRICT):
 function preprocessContent(content: string): string {
   // Strip common thinking/reasoning tags that might contain conflicting braces
   return content
-    .replace(/<think>[\s\S]*?<\/redacted_thinking>/gi, '')
+    .replace(/<redacted_thinking>[\s\S]*?<\/redacted_thinking>/gi, '')
     .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
     .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
     .trim();
@@ -242,10 +242,13 @@ export class AgentRuntime {
         });
         const answer = decodeLiteralEscapeSequencesInAnswer(String(toolCall.args.answer ?? ''));
         const thoughtRaw = String(toolCall.thought ?? '').trim();
-        const thoughtSafe = thoughtRaw.replace(/<\/redacted_thinking>/gi, '');
+        const thoughtSafe = thoughtRaw
+          .replace(/<\/redacted_thinking>/gi, '')
+          .replace(/<\/reasoning>/gi, '')
+          .replace(/<\/think>/gi, '');
         const prefix =
           thoughtSafe.length > 0
-            ? `<think>\n${thoughtSafe}\n</think>\n\n`
+            ? `<redacted_thinking>\n${thoughtSafe}\n</redacted_thinking>\n\n`
             : '';
         const chunkSize = 80;
         const fullOut = prefix + answer;
