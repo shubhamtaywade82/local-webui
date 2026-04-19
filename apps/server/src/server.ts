@@ -49,7 +49,7 @@ async function start() {
   const port = Number(process.env.PORT) || 4000;
   try {
     await app.listen({ port, host: "0.0.0.0" });
-    console.log(`Server listening on http://localhost${port}`);
+    console.log(`Server listening on http://localhost:${port}`);
     marketStream.start();
     startFuturesAutomation(app.log);
   } catch (err) {

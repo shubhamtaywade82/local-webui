@@ -3,5 +3,6 @@
   "compilerOptions": {
     "outDir": "dist"
   },
-  "include": ["*.ts"]
+  "include": ["*.ts", "stream/**/*.ts", "socket-io-client-v2.d.ts"],
+  "exclude": ["**/*.test.ts"]
 }

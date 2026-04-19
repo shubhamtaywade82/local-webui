@@ -1,122 +1,183 @@
-import { io, Socket } from 'socket.io-client';
-import type { OrderBook, WsCandle, WsTrade } from './types';
+import type { WsCandle, WsTrade, OrderBook } from './types';
+import type { StreamMarketKind } from './stream/types';
+import { CoinDCXStreamEngine } from './stream/engine';
+import type { CoinDCXStreamEngineConfig } from './stream/types';
+import {
+  candleChannel,
+  orderbookChannel,
+  tradesChannel,
+} from './stream/channels';
 
-const WS_URL = 'wss://stream.coindcx.com';
+export interface CoinDCXWsClientOptions {
+  market?: StreamMarketKind;
+  stream?: CoinDCXStreamEngineConfig;
+}
 
+/**
+ * CoinDCX Socket.IO stream client (`join` / `leave`, socket.io-client v2).
+ * Prefer channel helpers from `./stream/channels` when building custom subscriptions.
+ */
 export class CoinDCXWsClient {
-  private socket: Socket | null = null;
+  private readonly engine: CoinDCXStreamEngine;
+  private readonly market: StreamMarketKind;
+
+  constructor(options?: CoinDCXWsClientOptions) {
+    this.market = options?.market ?? 'futures';
+    this.engine = new CoinDCXStreamEngine({
+      dualLegacyJoinDefault: false,
+      ...options?.stream,
+    });
+    this.engine.on('engine:connected', () => console.log('[coindcx-ws] connected'));
+    this.engine.on('engine:disconnected', (reason: string) =>
+      console.log('[coindcx-ws] disconnected:', reason),
+    );
+    this.engine.on('engine:connect_error', (err: Error) =>
+      console.error('[coindcx-ws] connect error:', err.message),
+    );
+  }
 
   connect(): void {
-    if (this.socket?.connected) return;
-    this.socket = io(WS_URL, {
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 2000,
-    });
-    this.socket.on('connect', () =>
-      console.log('[coindcx-ws] connected')
-    );
-    this.socket.on('disconnect', (reason) =>
-      console.log('[coindcx-ws] disconnected:', reason)
-    );
-    this.socket.on('connect_error', (err) =>
-      console.error('[coindcx-ws] connect error:', err.message)
+    void this.engine.connect().catch((err: Error) =>
+      console.error('[coindcx-ws] connect error:', err.message),
     );
   }
 
   disconnect(): void {
-    this.socket?.disconnect();
-    this.socket = null;
+    this.engine.clearSubscriptions();
+    this.engine.disconnect();
   }
 
   isConnected(): boolean {
-    return this.socket?.connected === true;
+    return this.engine.isConnected();
   }
 
-  subscribeCandles(
-    pair: string,
-    interval: string,
-    cb: (c: WsCandle) => void,
-  ): () => void {
+  subscribeCandles(pair: string, interval: string, cb: (c: WsCandle) => void): () => void {
     this.connect();
-    const channel = `${pair}@kline_${interval}`;
-    this.socket!.emit('subscribe', { channelList: [channel] });
+    const channel = candleChannel(pair, interval, this.market);
+    this.engine.subscribe(channel);
 
     const handler = (data: unknown) => {
-      const d = data as Record<string, unknown>;
-      if (String(d.pair ?? d.symbol ?? '') !== pair) return;
+      const raw = data as Record<string, unknown>;
+      const ch = String(raw.channel ?? '');
+      if (ch && ch !== channel) return;
+
+      const rowSource = raw.data;
+      const d = (Array.isArray(rowSource) ? rowSource[0] : rowSource) as Record<string, unknown>;
+      if (!d || typeof d !== 'object') return;
+
+      const sym = String(d.pair ?? d.symbol ?? pair);
+      if (sym && sym !== pair) return;
+
       cb({
         pair,
         timeframe: interval,
-        open:   parseFloat(String(d.open ?? d.o ?? 0)),
-        high:   parseFloat(String(d.high ?? d.h ?? 0)),
-        low:    parseFloat(String(d.low  ?? d.l ?? 0)),
-        close:  parseFloat(String(d.close ?? d.c ?? 0)),
+        open: parseFloat(String(d.open ?? d.o ?? 0)),
+        high: parseFloat(String(d.high ?? d.h ?? 0)),
+        low: parseFloat(String(d.low ?? d.l ?? 0)),
+        close: parseFloat(String(d.close ?? d.c ?? 0)),
         volume: parseFloat(String(d.volume ?? d.v ?? 0)),
-        time:   typeof d.time === 'number' ? d.time
-               : parseInt(String(d.time ?? d.t ?? '0'), 10),
+        time:
+          typeof d.time === 'number'
+            ? d.time
+            : parseInt(String(d.time ?? d.t ?? d.open_time ?? '0'), 10),
       });
     };
 
-    this.socket!.on(channel, handler);
+    this.engine.on('candlestick', handler);
     return () => {
-      this.socket?.emit('unsubscribe', { channelList: [channel] });
-      this.socket?.off(channel, handler);
+      this.engine.off('candlestick', handler);
+      this.engine.unsubscribe(channel);
     };
   }
 
-  subscribeTrades(
-    pair: string,
-    cb: (t: WsTrade) => void,
-  ): () => void {
+  subscribeTrades(pair: string, cb: (t: WsTrade) => void): () => void {
     this.connect();
-    const channel = `${pair}@trades`;
-    this.socket!.emit('subscribe', { channelList: [channel] });
+    const channel = tradesChannel(pair, this.market);
+    this.engine.subscribe(channel);
 
     const handler = (data: unknown) => {
-      const d = data as Record<string, unknown>;
+      const raw = data as Record<string, unknown>;
+      const sym = String(raw.s ?? raw.symbol ?? raw.pair ?? '');
+      if (sym && sym !== pair) return;
+
+      const inner = (raw.data ?? raw) as Record<string, unknown>;
+      const d = (typeof inner === 'object' && inner !== null ? inner : raw) as Record<string, unknown>;
+
+      const sideRaw = d.side;
+      if (typeof sideRaw === 'string' && (sideRaw === 'buy' || sideRaw === 'sell')) {
+        cb({
+          pair,
+          price: parseFloat(String(d.p ?? d.price ?? 0)),
+          quantity: parseFloat(String(d.q ?? d.quantity ?? 0)),
+          side: sideRaw,
+          timestamp:
+            typeof d.T === 'number'
+              ? d.T
+              : typeof d.time === 'number'
+                ? d.time
+                : parseInt(String(d.ts ?? d.T ?? '0'), 10),
+        });
+        return;
+      }
+      const m = d.m;
+      const aggressiveSell = m === 1 || m === '1';
+
       cb({
         pair,
-        price:     parseFloat(String(d.price ?? d.p ?? 0)),
-        quantity:  parseFloat(String(d.quantity ?? d.q ?? 0)),
-        side:      String(d.side ?? d.m ? 'sell' : 'buy') as 'buy' | 'sell',
-        timestamp: typeof d.time === 'number' ? d.time
-                  : parseInt(String(d.time ?? d.T ?? '0'), 10),
+        price: parseFloat(String(d.p ?? d.price ?? 0)),
+        quantity: parseFloat(String(d.q ?? d.quantity ?? 0)),
+        side: aggressiveSell ? 'sell' : 'buy',
+        timestamp:
+          typeof d.T === 'number'
+            ? d.T
+            : typeof d.time === 'number'
+              ? d.time
+              : parseInt(String(d.ts ?? d.T ?? '0'), 10),
       });
     };
 
-    this.socket!.on(channel, handler);
+    this.engine.on('new-trade', handler);
     return () => {
-      this.socket?.emit('unsubscribe', { channelList: [channel] });
-      this.socket?.off(channel, handler);
+      this.engine.off('new-trade', handler);
+      this.engine.unsubscribe(channel);
     };
   }
 
-  // Order book updates are SNAPSHOT-ONLY — caller must always replace, never patch.
+  /**
+   * Order book updates are snapshot replacement semantics — caller must replace, not patch.
+   */
   subscribeOrderBook(
     pair: string,
     cb: (ob: OrderBook) => void,
+    depth: 10 | 20 | 50 = 20,
   ): () => void {
     this.connect();
-    const channel = `${pair}@depth`;
-    this.socket!.emit('subscribe', { channelList: [channel] });
+    const channel = orderbookChannel(pair, depth, this.market);
+    this.engine.subscribe(channel);
 
     const handler = (data: unknown) => {
-      const d = data as Record<string, unknown>;
-      // Full replacement — snapshot semantics as per CoinDCX docs
+      const raw = data as Record<string, unknown>;
+      const inner = (raw.data ?? raw) as Record<string, unknown>;
+      const d = (typeof inner === 'object' && inner !== null ? inner : raw) as Record<string, unknown>;
+
+      const sym = String(d.pair ?? d.symbol ?? d.s ?? pair);
+      if (sym && sym !== pair) return;
+
       cb({
         pair,
-        bids:      (d.bids as Record<string, string>) ?? {},
-        asks:      (d.asks as Record<string, string>) ?? {},
-        timestamp: Date.now(),
+        bids: (d.bids as Record<string, string>) ?? (d.b as Record<string, string>) ?? {},
+        asks: (d.asks as Record<string, string>) ?? (d.a as Record<string, string>) ?? {},
+        timestamp:
+          typeof d.ts === 'number' ? d.ts : typeof d.T === 'number' ? d.T : Date.now(),
       });
     };
 
-    this.socket!.on(channel, handler);
+    this.engine.on('depth-snapshot', handler);
+    this.engine.on('depth-update', handler);
     return () => {
-      this.socket?.emit('unsubscribe', { channelList: [channel] });
-      this.socket?.off(channel, handler);
+      this.engine.off('depth-snapshot', handler);
+      this.engine.off('depth-update', handler);
+      this.engine.unsubscribe(channel);
     };
   }
 }

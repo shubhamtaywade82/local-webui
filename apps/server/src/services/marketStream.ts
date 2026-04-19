@@ -1,4 +1,8 @@
-import io from 'socket.io-client-v2';
+import {
+  CoinDCXStreamEngine,
+  futuresCurrentPricesRtChannel,
+  futuresLtpChannel,
+} from '@workspace/coindcx-client';
 import { EventEmitter } from 'events';
 import { WebSocketServer } from 'ws';
 
@@ -9,6 +13,8 @@ export interface PriceUpdate {
   trend: 'Bullish' | 'Neutral' | 'Bearish' | 'Strong Bull';
   color: string;
 }
+
+type TickSource = 'stream' | 'poll' | 'rest';
 
 const NOISE_EVENTS = new Set([
   'connect',
@@ -23,13 +29,11 @@ const NOISE_EVENTS = new Set([
   'reconnect_failed',
 ]);
 
-type TickSource = 'stream' | 'poll' | 'rest';
-
 /** Market Pulse grid only shows these bases — never emit updates with other `sym` keys. */
 const PULSE_BASES = new Set(['BTC', 'ETH', 'SOL']);
 
 class MarketStream extends EventEmitter {
-  private socket: any = null;
+  private engine: CoinDCXStreamEngine | null = null;
   private wss: WebSocketServer | null = null;
   private latestPrices: Record<string, PriceUpdate> = {};
   private targets = ['B-BTC_USDT', 'B-ETH_USDT', 'B-SOL_USDT'] as const;
@@ -50,7 +54,7 @@ class MarketStream extends EventEmitter {
   }
 
   start() {
-    if (this.socket) return;
+    if (this.wss) return;
 
     this.wss = new WebSocketServer({ port: 4002 });
 
@@ -79,104 +83,77 @@ class MarketStream extends EventEmitter {
       }
     });
 
-    console.log('Starting CoinDCX Market Stream (Legacy Protocol v2.4.0)');
-    this.socket = io('wss://stream.coindcx.com', {
+    console.log('Starting CoinDCX Market Stream (shared CoinDCXStreamEngine, Socket.IO v2)');
+    this.engine = new CoinDCXStreamEngine({
+      dualLegacyJoinDefault: true,
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
     });
 
-    this.socket.on('connect_error', (err: any) => {
-      console.error('CoinDCX Connection Error:', err.message || err);
+    this.engine.on('engine:connect_error', (err: Error) => {
+      console.error('CoinDCX Connection Error:', err.message);
     });
 
-    this.socket.on('connect', () => {
-      console.log('Connected to CoinDCX Legacy Stream; joining price channels');
-      for (const channel of this.targets) {
-        const channelName = `${channel}@prices-futures`;
-        
-        // Strategy A: Standard object-based join
-        this.socket.emit('join', { channelName });
-        
-        // Strategy B: Array-wrapped join (legacy requirement in some SDKs)
-        this.socket.emit('join', ['join', { channelName }]);
-      }
-      
-      // Bulk stream subscriptions
-      this.socket.emit('join', { channelName: 'currentPrices@futures@rt' });
-      this.socket.emit('join', ['join', { channelName: 'currentPrices@futures@rt' }]);
+    this.engine.on('engine:connected', () => {
+      console.log('Connected to CoinDCX stream; price subscriptions active');
     });
 
-    // Zero-latency direct price listeners
-    this.socket.on('price-change', (data: any) => {
+    this.engine.on('engine:disconnected', (reason: string) => {
+      console.log('Disconnected from CoinDCX Market Stream:', reason);
+    });
+
+    this.engine.on('engine:error', (err: Error) => {
+      console.error('Market Stream Error:', err);
+    });
+
+    this.engine.on('price-change', (data: unknown) => {
       this.handlePriceUpdate('price-change', data, 'stream');
     });
 
-    this.socket.on('prices', (data: any) => {
+    this.engine.on('prices', (data: unknown) => {
       this.handlePriceUpdate('prices', data, 'stream');
     });
 
-    this.socket.on('currentPrices@futures#update', (data: any) => {
+    this.engine.on('currentPrices@futures#update', (data: unknown) => {
       this.handlePriceUpdate('bulk-futures', data, 'stream');
     });
 
-    const anySocket = this.socket as any;
-    const originalEmit = anySocket.onevent; // Socket.io v2 uses onevent for routing
-    anySocket.onevent = (packet: any) => {
-      const [event, data] = packet.data;
-      if (!NOISE_EVENTS.has(event)) {
-        // console.log(`Legacy WS Event: ${event}`);
-        if (event === 'price-change' || event === 'informant' || event.includes('update')) {
-          this.handlePriceUpdate(event, data, 'stream');
-        }
-      }
-      originalEmit.call(anySocket, packet);
-    };
+    for (const pair of this.targets) {
+      this.engine.subscribe(futuresLtpChannel(pair));
+    }
+    this.engine.subscribe(futuresCurrentPricesRtChannel());
 
-    this.socket.on('disconnect', () => {
-      console.log('Disconnected from CoinDCX Market Stream');
-    });
-
-    this.socket.on('error', (err: Error) => {
-      console.error('Market Stream Error:', err);
-    });
+    void this.engine
+      .connect()
+      .then(() => this.installLegacyOneventTap())
+      .catch((err: Error) => {
+        console.error('CoinDCX StreamEngine connect failed:', err.message);
+      });
 
     /** HTTP RT only when the Socket.IO feed has been quiet (backup / gap fill). */
     this.startFuturesRtPoll();
     this.startRestFallback();
   }
 
-  private dispatchStreamArgs(event: string, args: unknown[]): void {
-    for (const arg of args) {
-      if (arg == null) continue;
-      if (Array.isArray(arg)) {
-        for (const item of arg) {
-          if (item != null && typeof item === 'object') {
-            this.dispatchStreamObject(event, item as Record<string, unknown>);
+  private installLegacyOneventTap(): void {
+    const anySocket = this.engine?.getRawSocket() as { onevent?: (packet: unknown) => void } | null;
+    if (!anySocket?.onevent) return;
+
+    const originalEmit = anySocket.onevent.bind(anySocket);
+    anySocket.onevent = (packet: unknown) => {
+      const p = packet as { data?: [string, unknown] };
+      const tuple = p.data;
+      if (Array.isArray(tuple) && tuple.length >= 2) {
+        const [event, data] = tuple;
+        if (typeof event === 'string' && !NOISE_EVENTS.has(event)) {
+          if (event === 'price-change' || event === 'informant' || event.includes('update')) {
+            this.handlePriceUpdate(event, data, 'stream');
           }
         }
-        continue;
       }
-      if (typeof arg === 'object') {
-        this.dispatchStreamObject(event, arg as Record<string, unknown>);
-      }
-    }
-  }
-
-  /** Unwrap `prices` map from bulk RT-style payloads. */
-  private dispatchStreamObject(event: string, o: Record<string, unknown>): void {
-    const prices = o.prices;
-    if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
-      const px = prices as Record<string, Record<string, unknown>>;
-      for (const pair of this.targets) {
-        const row = px[pair];
-        if (row && typeof row === 'object') {
-          this.handlePriceUpdate(event, { ...row, market: pair }, 'stream');
-        }
-      }
-      return;
-    }
-    this.handlePriceUpdate(event, o, 'stream');
+      originalEmit(packet);
+    };
   }
 
   private startFuturesRtPoll() {
@@ -339,10 +316,23 @@ class MarketStream extends EventEmitter {
 
       if (typeof data !== 'object') return;
 
-      const priceValue = this.parseFinitePrice(data as Record<string, unknown>);
+      const row = data as Record<string, unknown>;
+      const prices = row.prices;
+      if (prices && typeof prices === 'object' && !Array.isArray(prices)) {
+        const px = prices as Record<string, Record<string, unknown>>;
+        for (const pair of this.targets) {
+          const cell = px[pair];
+          if (cell && typeof cell === 'object') {
+            this.handlePriceUpdate(event, { ...cell, market: pair }, source);
+          }
+        }
+        return;
+      }
+
+      const priceValue = this.parseFinitePrice(row);
       if (priceValue == null) return;
 
-      const sym = this.resolvePulseBase(data as Record<string, unknown>, event);
+      const sym = this.resolvePulseBase(row, event);
       if (sym == null) return;
 
       const price = priceValue.toLocaleString(undefined, {
@@ -398,8 +388,8 @@ class MarketStream extends EventEmitter {
   }
 
   stop() {
-    this.socket?.disconnect();
-    this.socket = null;
+    this.engine?.disconnect();
+    this.engine = null;
 
     this.wss?.clients.forEach((client) => {
       client.terminate();

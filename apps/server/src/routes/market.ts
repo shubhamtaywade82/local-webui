@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import WebSocket from "ws";
 import { marketStream } from "../services/marketStream";
 
 export default async function routes(app: FastifyInstance) {
@@ -54,14 +55,22 @@ export default async function routes(app: FastifyInstance) {
 
   /** Browser Market Pulse: same-origin via Vite `/api` → `/market/ws` (see `vite.config.ts` rewrite). */
   app.get("/ws", { websocket: true }, (connection) => {
-    const latest = marketStream.getLatest();
-    if (latest.length > 0 && connection.socket.readyState === 1) {
-      connection.socket.send(JSON.stringify({ type: "initial", data: latest }));
-    }
+    const sendJson = (payload: object) => {
+      const sock = connection.socket;
+      if (sock.readyState !== WebSocket.OPEN) return;
+      sock.send(JSON.stringify(payload));
+    };
+
+    const pushInitial = () => {
+      const latest = marketStream.getLatest();
+      if (latest.length > 0) {
+        sendJson({ type: "initial", data: latest });
+      }
+    };
+    queueMicrotask(pushInitial);
 
     const onUpdate = (update: unknown) => {
-      if (connection.socket.readyState !== 1) return;
-      connection.socket.send(JSON.stringify({ type: "update", data: update }));
+      sendJson({ type: "update", data: update });
     };
     marketStream.on("update", onUpdate);
     connection.socket.on("close", () => {
