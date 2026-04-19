@@ -111,9 +111,9 @@ importers:
       sequelize:
         specifier: ^6.37.3
         version: 6.37.8(pg-hstore@2.3.4)(pg@8.20.0)
-      socket.io-client:
-        specifier: ^2.4.0
-        version: 2.5.0
+      socket.io-client-v2:
+        specifier: npm:socket.io-client@2.4.0
+        version: socket.io-client@2.4.0
       ws:
         specifier: ^8.20.0
         version: 8.20.0
@@ -3402,8 +3402,8 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  socket.io-client@2.5.0:
-    resolution: {integrity: sha512-lOO9clmdgssDykiOmVQQitwBAF3I6mYcQAo7hQ7AM6Ny5X7fp8hIJ3HcQs3Rjz4SoggoxA1OgrQyY8EgTbcPYw==}
+  socket.io-client@2.4.0:
+    resolution: {integrity: sha512-M6xhnKQHuuZd4Ba9vltCLT9oa+YvTsP8j9NcEiLElfIg8KeYPyhWOes6x4t+LTAC8enQbE/995AdTem2uNyKKQ==}
 
   socket.io-client@4.8.3:
     resolution: {integrity: sha512-uP0bpjWrjQmUt5DTHq9RuoCBdFJF10cdX9X+a368j/Ft0wmaVgxlrjvK3kjvgCODOMMOz9lcaRzxmso0bTWZ/g==}
@@ -7335,7 +7335,7 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  socket.io-client@2.5.0:
+  socket.io-client@2.4.0:
     dependencies:
       backo2: 1.0.2
       component-bind: 1.0.0

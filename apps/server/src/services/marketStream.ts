@@ -1,4 +1,4 @@
-import io from 'socket.io-client';
+import io from 'socket.io-client-v2';
 import { EventEmitter } from 'events';
 import { WebSocketServer } from 'ws';
 
