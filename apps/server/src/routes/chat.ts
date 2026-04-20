@@ -28,6 +28,22 @@ import {
   fetchPublicOhlcv,
 } from "@workspace/tools";
 import { db } from "../services/db";
+import {
+  marketRegistry,
+  timeframeEngine,
+  signalEngine,
+  riskEngine,
+  executionEngine,
+} from "../services/engines";
+import {
+  UniverseTool,
+  InstrumentTool,
+  MultiTfContextTool,
+  AnalysisSetupTool,
+  SimulateOrderTool,
+  PlaceOrderTool,
+  PositionStateTool,
+} from "@workspace/agent-tools";
 import { summarizeConversation } from "../services/summarizer";
 import { knowledgeEngine } from "../services/knowledgeSingleton";
 
@@ -236,6 +252,14 @@ function createToolRegistry(): ToolRegistry {
   registry.register(new CoinDCXFuturesTool());
   registry.register(new SmcAnalysisTool());
   registry.register(new TelegramAlertTool());
+  // Trading architecture tools — deterministic engines, LLM orchestrates only
+  registry.register(new UniverseTool(marketRegistry));
+  registry.register(new InstrumentTool(marketRegistry));
+  registry.register(new MultiTfContextTool(timeframeEngine));
+  registry.register(new AnalysisSetupTool(signalEngine));
+  registry.register(new SimulateOrderTool(signalEngine, riskEngine));
+  registry.register(new PlaceOrderTool(signalEngine, riskEngine, executionEngine));
+  registry.register(new PositionStateTool(executionEngine));
   return registry;
 }
 
@@ -267,8 +291,14 @@ function handleWs(connection: any, req: any) {
       const {
         messages, model, conversation_id, systemPrompt: customSystemPrompt,
         thinking, agentMode, maxIterations, agentStepMode, token: payloadToken,
-        provider
+        provider,
+        /** When false, only the latest user message is sent to the model (no DB thread / no client history). Default true. */
+        includeConversationHistory,
+        /** Plain completion: no agent, tools, RAG, or DB-backed history — client sends the full thread. */
+        simpleChat,
       } = payload;
+      const sendConversationHistory = includeConversationHistory !== false;
+      const isSimpleChat = simpleChat === true;
       const requestedProvider = resolveOllamaProvider(provider);
       const requestedModel =
         typeof model === "string" && model.trim()
@@ -297,46 +327,62 @@ function handleWs(connection: any, req: any) {
         await db.ensureConversation(currentConversationId, conversationTitle, requestedModel, userId);
       }
 
+      let history: Array<{ role: string; content: string }> = [];
+      let historyContext = "";
+      let contextDocs: any[] = [];
+      let systemPromptText: string;
+
+      if (isSimpleChat) {
+        const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
+        systemPromptText = base;
+        if (thinking) {
+          systemPromptText += `\n\nTHINKING MODE ENABLED:
+You MUST reason step-by-step before providing your final answer.
+Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
+        }
+      } else {
       // 1. Retrieve Knowledge (RAG) — filter out low-relevance results (cosine < 0.35)
       const MIN_RAG_SCORE = 0.35;
       const [allContextDocs, liveCryptoContext] = await Promise.all([
         knowledge.retrieve(lastUserMessage, {}, requestedProvider),
         fetchLiveCryptoContext(lastUserMessage),
       ]);
-      const contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
+      contextDocs = allContextDocs.filter((d: any) => (d.score ?? d.vectorScore ?? 0) >= MIN_RAG_SCORE);
       const availableFiles = knowledge.listAll();
       const contextString = contextDocs.map((d: any) => `FILE: ${d.path}\nCONTENT: ${d.content}`).join("\n\n");
 
       // 2. Prepare Context (History) — use cached summary, re-summarize only every 5 new messages
-      const history = await db.getMessages(currentConversationId);
-      let historyContext = "";
-      if (history.length > 10) {
-        const cached = await db.getSummary(currentConversationId);
-        const needsRefresh = !cached || history.length >= cached.messageCount + 5;
-        if (needsRefresh) {
-          const historyText = history.map((m: any) => `${m.role}: ${m.content}`).join("\n");
-          const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
-          await db.upsertSummary(currentConversationId, summary, history.length, {
-            title: conversationTitle,
-            model: requestedModel,
-            userId,
-          });
-          historyContext = `Conversation Summary:\n${summary}`;
-        } else {
-          historyContext = `Conversation Summary:\n${cached.summary}`;
+      if (sendConversationHistory) {
+        const rows = await db.getMessages(currentConversationId);
+        history = rows.map((m: any) => ({ role: m.role, content: m.content }));
+        if (history.length > 10) {
+          const cached = await db.getSummary(currentConversationId);
+          const needsRefresh = !cached || history.length >= cached.messageCount + 5;
+          if (needsRefresh) {
+            const historyText = history.map((m) => `${m.role}: ${m.content}`).join("\n");
+            const summary = await summarizeConversation(historyText, requestedModel, requestedProvider);
+            await db.upsertSummary(currentConversationId, summary, history.length, {
+              title: conversationTitle,
+              model: requestedModel,
+              userId,
+            });
+            historyContext = `Conversation Summary:\n${summary}`;
+          } else {
+            historyContext = `Conversation Summary:\n${cached.summary}`;
+          }
         }
       }
 
       // 3. Prepare System Prompt (chat mode)
       const basePrompt = customSystemPrompt?.trim() ? customSystemPrompt : "You are a local AI assistant.";
-      let systemPromptText = `${basePrompt}
+      systemPromptText = `${basePrompt}
 Use the following context if relevant to the question.
 If not found in context, answer normally.
 
 AVAILABLE LOCAL FILES:
 ${availableFiles.join(", ") || "No local files indexed."}
 
-${historyContext}
+${sendConversationHistory ? historyContext : ''}
 
 CONTEXT FROM DOCUMENTS:
 ${contextString || "No specific content match found in local knowledge."}
@@ -354,14 +400,14 @@ To use it, strictly follow this format in your response:
       if (thinking) {
         systemPromptText += `\n\nTHINKING MODE ENABLED:
 You MUST reason step-by-step before providing your final answer.
-Wrap your internal reasoning process entirely within <think>...</think> tags.`;
+Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
       }
 
       // ── Strategic Mode Overrides ──
       if (lastUserMessage.includes("[STRATEGY_MODE: SMC]")) {
         systemPromptText += `\n\nSTRATEGY DIRECTIVE: SMC ANALYSIS MODE
 - Priorities: Market Structure (BoS/ChoCh), Order Blocks, and Fair Value Gaps.
-- Mandatory: Use 'smc_analysis' tool first. 
+- Mandatory: Call 'smc_analysis' **once** when you need SMC context (same symbol/timeframes/params). After a successful result, your **next** step must be **finish** (or a different tool/args if the task requires it) — never repeat smc_analysis with identical parameters on the next turn.
 - Determinism: Follow the "Lookup-on-Error" protocol strictly if symbols mismatch.
 - Alerts: If a high-confidence setup is found, you MUST use the 'telegram_alert' tool to notify the user.`;
       } else if (lastUserMessage.includes("[STRATEGY_MODE: TREND]")) {
@@ -372,9 +418,14 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         systemPromptText += `\n\nSTRATEGY DIRECTIVE: LIQUIDITY AUDIT MODE
 - Priorities: Liquidity sweeps, inducement, and internal/external range pools.`;
       }
+      }
 
       const systemPromptMsg = { role: 'system', content: systemPromptText };
-      const finalMessages = [systemPromptMsg, ...messages];
+      const finalMessages = isSimpleChat
+        ? [systemPromptMsg, ...messages]
+        : sendConversationHistory
+          ? [systemPromptMsg, ...messages]
+          : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
 
       // 4. Persist user message
       await db.saveMessage(currentConversationId, 'user', lastUserMessage);
@@ -388,7 +439,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
       let fullAssistantResponse = "";
       let savedMessageId: string | null = null;
 
-      if (agentMode) {
+      if (agentMode && !isSimpleChat) {
         // ── Agent mode: ReAct loop ──
         const emitStepEvt = (id: string, label: string, status: 'running' | 'success' | 'error', tool?: string) => {
           connection.socket.send(JSON.stringify({
@@ -430,7 +481,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         try {
           await withSpan('chat', 'agent.run', () => runtime.run(
             lastUserMessage,
-            history.map((m: any) => ({ role: m.role, content: m.content })),
+            sendConversationHistory ? history : [],
             (event: LoopEvent) => {
               if (event.type === 'token') {
                 const token = String((event.payload as any).token ?? '');
@@ -509,6 +560,7 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
         const startTime = Date.now();
 
         const emitStep = (id: string, label: string, status: 'running' | 'success', tool?: string) => {
+          if (isSimpleChat) return;
           if (status === 'success' && stepsEmitted.has(id)) return;
           connection.socket.send(JSON.stringify({
             type: 'agent_step',
@@ -530,15 +582,15 @@ Wrap your internal reasoning process entirely within <think>...</think> tags.`;
 
               connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
 
-              if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
+              if (buffer.includes("<redacted_thinking>") && !stepsEmitted.has('thinking')) {
                 emitStep('thinking', 'Reasoning step-by-step', 'running');
               }
-              if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
+              if (buffer.includes("</redacted_thinking>") && !stepsEmitted.has('thinking-done')) {
                 emitStep('thinking', 'Reasoning complete', 'success');
                 stepsEmitted.add('thinking-done');
               }
 
-              if (buffer.includes("<tool>edit_file</tool>")) {
+              if (!isSimpleChat && buffer.includes("<tool>edit_file</tool>")) {
                 if (!stepsEmitted.has('tool-edit-file')) {
                   emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
                 }

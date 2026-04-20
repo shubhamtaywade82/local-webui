@@ -1,0 +1,15 @@
+{
+  "name": "@workspace/execution-engine",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@workspace/coindcx-client": "workspace:*",
+    "@workspace/market-registry": "workspace:*",
+    "@workspace/risk-engine": "workspace:*",
+    "@workspace/signal-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

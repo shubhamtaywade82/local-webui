@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist"
+  },
+  "include": ["*.ts", "stream/**/*.ts", "socket-io-client-v2.d.ts"],
+  "exclude": ["**/*.test.ts"]
+}

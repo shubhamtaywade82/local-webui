@@ -182,7 +182,7 @@ export default function Sidebar() {
                     <div className="text-xs font-medium truncate">{conv.title}</div>
                     {lastMsg && (
                       <div className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        {lastMsg.content.replace(/<think>[\s\S]*?(<\/think>|$)/g, '').slice(0, 60)}
+                        {lastMsg.content.replace(/<redacted_thinking>[\s\S]*?(?:<\/redacted_thinking>|$)/g, '').slice(0, 60)}
                       </div>
                     )}
                   </div>

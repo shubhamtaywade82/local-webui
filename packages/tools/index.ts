@@ -23,9 +23,21 @@ export class ToolRegistry {
     this.tools.set(tool.name, tool);
   }
 
+  /** Exact registered name, or case-insensitive match (models often emit `SMC_analysis` vs `smc_analysis`). */
+  canonicalToolName(requested: string): string | null {
+    const trimmed = requested.trim();
+    if (this.tools.has(trimmed)) return trimmed;
+    const lower = trimmed.toLowerCase();
+    for (const key of this.tools.keys()) {
+      if (key.toLowerCase() === lower) return key;
+    }
+    return null;
+  }
+
   async execute(name: string, args: Record<string, unknown>): Promise<string> {
-    const tool = this.tools.get(name);
-    if (!tool) throw new Error(`Tool "${name}" not found`);
+    const key = this.canonicalToolName(name);
+    if (!key) throw new Error(`Tool "${name}" not found`);
+    const tool = this.tools.get(key)!;
     return tool.execute(args);
   }
 
@@ -34,6 +46,6 @@ export class ToolRegistry {
   }
 
   has(name: string): boolean {
-    return this.tools.has(name);
+    return this.canonicalToolName(name) !== null;
   }
 }
