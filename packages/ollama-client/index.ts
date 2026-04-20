@@ -1,3 +1,10 @@
+import {
+  Ollama,
+  type AbortableAsyncIterator,
+  type ChatResponse,
+  type Message,
+} from "ollama";
+
 export type OllamaRequestHeaders = Record<string, string>;
 export type OllamaProvider = "local" | "cloud";
 
@@ -48,150 +55,103 @@ export function createOllamaClient(provider: OllamaProvider = "local"): OllamaCl
 }
 
 export class OllamaClient {
-  constructor(
-    private base = getOllamaBase(),
-    private defaultHeaders: OllamaRequestHeaders = getOllamaHeaders()
-  ) {}
+  private readonly client: Ollama;
 
-  private jsonHeaders(): OllamaRequestHeaders {
-    return {
-      "Content-Type": "application/json",
-      ...this.defaultHeaders,
-    };
+  constructor(
+    base = getOllamaBase(),
+    defaultHeaders: OllamaRequestHeaders = getOllamaHeaders()
+  ) {
+    this.client = new Ollama({
+      host: base,
+      headers: defaultHeaders,
+    });
   }
 
-  async chat(model: string, messages: any[]) {
-    const res = await fetch(`${this.base}/api/chat`, {
-      method: "POST",
-      headers: this.jsonHeaders(),
-      body: JSON.stringify({
+  async chat(model: string, messages: Message[]) {
+    try {
+      return await this.client.chat({
         model,
         messages,
-        stream: false
-      })
-    });
-
-    if (!res.ok) {
-      const errorBody = await res.text();
-      throw new Error(`Ollama Error: ${res.status} ${res.statusText} - ${errorBody}`);
+        stream: false,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Ollama Error: ${message}`);
     }
-
-    return res.json();
   }
 
   async stream(
     model: string,
-    messages: any[],
+    messages: Message[],
     onToken: (token: string) => void,
     options?: { think?: boolean }
   ) {
     console.log(`[OllamaClient] Streaming chat with model ${model}...`);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_STREAM_TIMEOUT_MS);
+
+    const streamRequest =
+      options?.think === true
+        ? { model, messages, stream: true as const, think: true as const }
+        : options?.think === false
+          ? { model, messages, stream: true as const, think: false as const }
+          : { model, messages, stream: true as const };
+
+    let iterator: AbortableAsyncIterator<ChatResponse>;
+    try {
+      iterator = (await this.client.chat(streamRequest)) as AbortableAsyncIterator<ChatResponse>;
+    } catch (err) {
+      console.error("[OllamaClient] Failed to start stream:", err);
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    const timeoutId = setTimeout(() => iterator.abort(), DEFAULT_STREAM_TIMEOUT_MS);
+
+    let insideNativeThinking = false;
+    const closeNativeThinking = () => {
+      if (insideNativeThinking) {
+        onToken("</think>");
+        insideNativeThinking = false;
+      }
+    };
+    const emitNativeThinking = (t: string) => {
+      if (!t) return;
+      if (!insideNativeThinking) {
+        onToken("<think>");
+        insideNativeThinking = true;
+      }
+      onToken(t);
+    };
+    const emitContent = (t: string) => {
+      if (!t) return;
+      closeNativeThinking();
+      onToken(t);
+    };
 
     try {
-      const body: Record<string, unknown> = {
-        model,
-        messages,
-        stream: true,
-      };
-      if (options?.think === true) {
-        body.think = true;
-      } else if (options?.think === false) {
-        body.think = false;
-      }
-
-      const res = await fetch(`${this.base}/api/chat`, {
-        method: "POST",
-        headers: this.jsonHeaders(),
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const errorBody = await res.text();
-        throw new Error(`Ollama Error: ${res.status} ${res.statusText} - ${errorBody}`);
-      }
-
-      if (!res.body) {
-        console.error("[OllamaClient] Response body is missing");
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      /** Wrap native `message.thinking` so the chat UI can show it in the same collapsible block as prompt-based thinking. */
-      let insideNativeThinking = false;
-      const closeNativeThinking = () => {
-        if (insideNativeThinking) {
-          onToken("</redacted_thinking>");
-          insideNativeThinking = false;
+      for await (const part of iterator) {
+        const msg = part.message;
+        if (msg?.thinking) {
+          emitNativeThinking(msg.thinking);
         }
-      };
-      const emitNativeThinking = (t: string) => {
-        if (!t) return;
-        if (!insideNativeThinking) {
-          onToken("<redacted_thinking>");
-          insideNativeThinking = true;
+        if (msg?.content) {
+          emitContent(msg.content);
         }
-        onToken(t);
-      };
-      const emitContent = (t: string) => {
-        if (!t) return;
-        closeNativeThinking();
-        onToken(t);
-      };
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          const jsonLine = trimmed.startsWith("data:") ? trimmed.slice(5).trim() : trimmed;
-          try {
-            const data = JSON.parse(jsonLine);
-            const msg = data.message;
-            // Native thinking models stream reasoning in `thinking` and the answer in `content`.
-            // Older models / prompt-only "thinking" use `content` only.
-            if (msg?.thinking) {
-              emitNativeThinking(msg.thinking);
-            }
-            if (msg?.content) {
-              emitContent(msg.content);
-            }
-            if (data.done) {
-              closeNativeThinking();
-              console.log("[OllamaClient] Done signal received");
-              return; // End the stream early
-            }
-          } catch (err) {
-            console.warn(`[OllamaClient] Failed to parse line: ${jsonLine.slice(0, 80)}...`);
-          }
+        if (part.done) {
+          console.log("[OllamaClient] Done signal received");
+          return;
         }
       }
-      if (buffer.trim()) {
-        try {
-          const tail = buffer.trim().startsWith("data:")
-            ? buffer.trim().slice(5).trim()
-            : buffer.trim();
-          const data = JSON.parse(tail);
-          const msg = data.message;
-          if (msg?.thinking) emitNativeThinking(msg.thinking);
-          if (msg?.content) emitContent(msg.content);
-        } catch (err) {
-          // ignore
-        }
-      }
-      closeNativeThinking();
       console.log("[OllamaClient] Streaming finished successfully");
     } catch (err) {
-      console.error("[OllamaClient] Fetch error:", err);
+      const name = err instanceof Error ? err.name : "";
+      const isAbort = name === "AbortError" || (err instanceof Error && /abort/i.test(err.message));
+      if (isAbort) {
+        throw new Error(`Ollama stream timed out or was aborted after ${DEFAULT_STREAM_TIMEOUT_MS}ms`);
+      }
+      console.error("[OllamaClient] Stream error:", err);
       throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+      clearTimeout(timeoutId);
+      closeNativeThinking();
     }
   }
 }
