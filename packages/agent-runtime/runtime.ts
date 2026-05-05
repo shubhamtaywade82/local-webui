@@ -64,7 +64,8 @@ RULES (STRICT):
 8. **Public market data**: Never use coindcx_futures for price/trend/candles. Use coindcx or smc_analysis.
 9. **Spot vs Futures**: Futures OHLCV/SMC always use **B-BASE_USDT** or **B-BASE_INR**.
 10. **Check then Act**: If unsure of symbol mapping, verify first via futures_instruments or markets.
-11. **finish tool — valid JSON only**: \`args.answer\` MUST be a single JSON string. Escape every double-quote as \\", newline as \\n, backslash as \\\\. Do not put raw markdown code fences or multi-line prose inside \`answer\` unless fully escaped as string content. Never wrap the whole response in \`\`\`json fences.`;
+11. **finish tool — valid JSON only**: \`args.answer\` MUST be a single JSON string. Escape every double-quote as \\", newline as \\n, backslash as \\\\. Do not put raw markdown code fences or multi-line prose inside \`answer\` unless fully escaped as string content. Never wrap the whole response in \`\`\`json fences.
+12. **Images**: You cannot generate PNG/JPEG photos or illustrations with edit_file or any listed tool. If the user wants AI-generated images, use **finish** to tell them to open this app's **/comfy** (ComfyUI) page with a workflow, or to use an external image service — do not call edit_file for fake image files.`;
 }
 
 function preprocessContent(content: string): string {

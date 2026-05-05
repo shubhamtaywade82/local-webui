@@ -42,6 +42,13 @@ describe('EditFileTool', () => {
     const { readFileSync } = await import('fs');
     expect(readFileSync(join(TMP, 'edit.ts'), 'utf8')).toBe('new content');
   });
+
+  it('refuses raster image paths without writing', async () => {
+    const tool = new EditFileTool(TMP);
+    const result = await tool.execute({ path: 'src/house.png', content: 'fake' });
+    expect(result).toContain('cannot write raster');
+    expect(existsSync(join(TMP, 'src', 'house.png'))).toBe(false);
+  });
 });
 
 describe('CreateFileTool', () => {
@@ -49,6 +56,13 @@ describe('CreateFileTool', () => {
     const tool = new CreateFileTool(TMP);
     await tool.execute({ path: 'new.ts', content: 'export {}' });
     expect(existsSync(join(TMP, 'new.ts'))).toBe(true);
+  });
+
+  it('refuses raster image paths without creating', async () => {
+    const tool = new CreateFileTool(TMP);
+    const result = await tool.execute({ path: 'img.JPEG', content: 'x' });
+    expect(result).toContain('cannot create raster');
+    expect(existsSync(join(TMP, 'img.JPEG'))).toBe(false);
   });
 });
 

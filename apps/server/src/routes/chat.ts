@@ -27,6 +27,7 @@ import {
   SmcAnalysisTool,
   TelegramAlertTool,
   fetchPublicOhlcv,
+  isRasterImagePath,
 } from "@workspace/tools";
 import { db } from "../services/db";
 import {
@@ -405,13 +406,18 @@ ${contextString || "No specific content match found in local knowledge."}
 ${liveCryptoContext ? `\n${liveCryptoContext}` : ''}
 
 TOOL USAGE:
-You can actively modify files in the user's Editor using the edit_file tool.
+You can actively modify **text-based workspace files** in the user's Editor using the edit_file tool (source code, markdown, configs — not binary images).
 To use it, strictly follow this format in your response:
 <tool>edit_file</tool>
 <path>src/filename.ext</path>
 <content>
 // Code goes here
-</content>`;
+</content>
+The path must be a **text** file (e.g. .ts, .tsx, .js, .md, .json for config). **Never** use .png, .jpg, .jpeg, .webp, .gif, or other image extensions in <path> — those are not supported here.
+
+IMAGE / PHOTO / ILLUSTRATION REQUESTS:
+- Do **not** use edit_file to "create" PNG/JPEG/WebP or other raster images; the editor tool cannot generate pixels.
+- If the user asks to generate, draw, or create an image: tell them to use the **ComfyUI** screen in this app (**/comfy**) with a ComfyUI API workflow when the server has COMFYUI_BASE_URL set, or use another image tool. Never invent <tool>edit_file</tool> blocks for fake image paths (e.g. image_palette.png) unless they explicitly asked for a **text** file with that name.`;
 
       if (thinking) {
         systemPromptText += `\n\nTHINKING MODE ENABLED:
@@ -615,12 +621,22 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
                 if (pathMatch && contentMatch) {
                   const filePath = pathMatch[1].trim();
                   const fileContent = contentMatch[1].trim();
-                  emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
-                  connection.socket.send(JSON.stringify({
-                    type: 'tool_call', tool: 'edit_file',
-                    path: filePath, content: fileContent,
-                    conversation_id: currentConversationId
-                  }));
+                  if (isRasterImagePath(filePath)) {
+                    const notice =
+                      `\n\n*(Skipped opening in editor: \`${filePath}\` looks like a raster image. ` +
+                      `Use **ComfyUI** — open **/comfy** in this app — for image generation.)*\n`;
+                    connection.socket.send(
+                      JSON.stringify({ type: 'token', token: notice, conversation_id: currentConversationId })
+                    );
+                    fullAssistantResponse += notice;
+                  } else {
+                    emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
+                    connection.socket.send(JSON.stringify({
+                      type: 'tool_call', tool: 'edit_file',
+                      path: filePath, content: fileContent,
+                      conversation_id: currentConversationId
+                    }));
+                  }
                   buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
                 }
               }
