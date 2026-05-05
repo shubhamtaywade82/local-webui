@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Activity, TrendingUp } from "lucide-react";
+import {
+  DEFAULT_WATCHLIST_PAIRS,
+  loadWatchlistPairs,
+  normalizeFuturesPair,
+  saveWatchlistPairs,
+} from "../lib/tradingWatchlist";
 
 type PulseRow = {
   sym: string;
@@ -123,7 +129,11 @@ function OrderBookDepth({ book, levels }: { book: OrderBookPayload; levels: numb
 
 export default function TradingDashboardPage() {
   const [instruments, setInstruments] = useState<InstrumentRow[]>([]);
-  const [pair, setPair] = useState(DEFAULT_PAIR);
+  /** `watchlist` = only saved pairs (default BTC/ETH/SOL). `catalog` = full CoinDCX active list (loaded on demand). */
+  const [pairScope, setPairScope] = useState<"watchlist" | "catalog">("watchlist");
+  const [watchlistPairs, setWatchlistPairs] = useState<string[]>(() => loadWatchlistPairs());
+  const [addPairDraft, setAddPairDraft] = useState("");
+  const [pair, setPair] = useState(() => loadWatchlistPairs()[0] ?? DEFAULT_PAIR);
   const [barInterval, setBarInterval] = useState<string>("1h");
   const [pulse, setPulse] = useState<PulseRow[]>([]);
   const [wsLive, setWsLive] = useState(false);
@@ -140,8 +150,22 @@ export default function TradingDashboardPage() {
   const [mtfRows, setMtfRows] = useState<MtfRow[]>([]);
   const [logLines, setLogLines] = useState<string[]>([]);
 
-  /** Sorted list for a normal `<select>` dropdown (cap length for browser performance). */
+  const rowFromPair = useCallback((p: string): InstrumentRow => {
+    const pairNorm = normalizeFuturesPair(p) || p;
+    const base = pairNorm.replace(/^B-/i, "").replace(/_USDT$/i, "");
+    return { pair: pairNorm, base, quote: "USDT", status: "watchlist" };
+  }, []);
+
+  /** Pairs shown in the `<select>`: watchlist only, or full active catalog (sorted, capped). */
   const pairSelectOptions = useMemo(() => {
+    if (pairScope === "watchlist") {
+      const rows = watchlistPairs.map((p) => rowFromPair(p)).sort((a, b) => a.pair.localeCompare(b.pair));
+      const base = rows.length > 0 ? rows : [...DEFAULT_WATCHLIST_PAIRS].map((p) => rowFromPair(p));
+      if (!base.some((r) => r.pair === pair)) {
+        return [rowFromPair(pair), ...base];
+      }
+      return base;
+    }
     const sorted = [...instruments].sort((a, b) => a.pair.localeCompare(b.pair)).slice(0, 1200);
     const base =
       sorted.length > 0 ? sorted : [{ pair: DEFAULT_PAIR, base: "BTC", quote: "USDT", status: "" }];
@@ -149,7 +173,7 @@ export default function TradingDashboardPage() {
       return [{ pair, base: "", quote: "", status: "" }, ...base];
     }
     return base;
-  }, [instruments, pair]);
+  }, [instruments, pair, pairScope, watchlistPairs, rowFromPair]);
 
   const pushLog = useCallback((line: string) => {
     setLogLines((prev) => {
@@ -172,8 +196,49 @@ export default function TradingDashboardPage() {
   }, []);
 
   useEffect(() => {
-    void loadInstruments();
-  }, [loadInstruments]);
+    if (pairScope === "catalog" && instruments.length === 0) {
+      void loadInstruments();
+    }
+  }, [pairScope, instruments.length, loadInstruments]);
+
+  useEffect(() => {
+    saveWatchlistPairs(watchlistPairs);
+  }, [watchlistPairs]);
+
+  useEffect(() => {
+    if (pairScope !== "watchlist") return;
+    if (watchlistPairs.some((x) => normalizeFuturesPair(x) === normalizeFuturesPair(pair))) return;
+    setPair(watchlistPairs[0] ?? DEFAULT_PAIR);
+  }, [pairScope, watchlistPairs, pair]);
+
+  const removeFromWatchlist = useCallback((p: string) => {
+    const norm = normalizeFuturesPair(p);
+    if (!norm) return;
+    setWatchlistPairs((prev) => {
+      const next = prev.filter((x) => normalizeFuturesPair(x) !== norm);
+      const final = next.length === 0 ? [...DEFAULT_WATCHLIST_PAIRS] : next;
+      queueMicrotask(() => {
+        setPair((cur) => (normalizeFuturesPair(cur) === norm ? final[0]! : cur));
+      });
+      return final;
+    });
+  }, []);
+
+  const addPairToWatchlist = useCallback(() => {
+    const norm = normalizeFuturesPair(addPairDraft);
+    setAddPairDraft("");
+    if (!norm) return;
+    setWatchlistPairs((prev) => {
+      if (prev.some((x) => normalizeFuturesPair(x) === norm)) return prev;
+      if (prev.length >= 40) return prev;
+      return [...prev, norm].sort((a, b) => a.localeCompare(b));
+    });
+  }, [addPairDraft]);
+
+  const resetWatchlist = useCallback(() => {
+    setWatchlistPairs([...DEFAULT_WATCHLIST_PAIRS]);
+    setPair(DEFAULT_WATCHLIST_PAIRS[0]);
+  }, []);
 
   const loadAccount = useCallback(async () => {
     try {
@@ -476,8 +541,103 @@ export default function TradingDashboardPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
           <div className="rounded-xl border p-4 space-y-3" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
+            <div className="flex flex-wrap gap-2 items-center mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                Pair source
+              </span>
+              <div className="flex rounded-md overflow-hidden border" style={{ borderColor: "var(--border-subtle)" }}>
+                <button
+                  type="button"
+                  onClick={() => setPairScope("watchlist")}
+                  className="text-[10px] px-2 py-1 font-medium"
+                  style={{
+                    background: pairScope === "watchlist" ? "var(--accent-muted)" : "transparent",
+                    color: pairScope === "watchlist" ? "var(--accent)" : "var(--text-tertiary)",
+                  }}
+                >
+                  Watchlist
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPairScope("catalog")}
+                  className="text-[10px] px-2 py-1 font-medium"
+                  style={{
+                    background: pairScope === "catalog" ? "var(--accent-muted)" : "transparent",
+                    color: pairScope === "catalog" ? "var(--accent)" : "var(--text-tertiary)",
+                  }}
+                >
+                  All active
+                </button>
+              </div>
+            </div>
+
+            {pairScope === "watchlist" && (
+              <div className="space-y-2 mb-2">
+                <div className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  Saved pairs (stored in this browser). Remove with × — max 40.
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {watchlistPairs.map((p) => (
+                    <span
+                      key={p}
+                      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-mono border"
+                      style={{
+                        borderColor: "var(--border-subtle)",
+                        background: normalizeFuturesPair(pair) === normalizeFuturesPair(p) ? "var(--accent-muted)" : "var(--bg-primary)",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      {p}
+                      <button
+                        type="button"
+                        className="leading-none px-0.5 rounded hover:bg-white/10"
+                        style={{ color: "var(--text-muted)" }}
+                        title={`Remove ${p}`}
+                        onClick={() => removeFromWatchlist(p)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  <input
+                    type="text"
+                    value={addPairDraft}
+                    onChange={(e) => setAddPairDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") addPairToWatchlist();
+                    }}
+                    placeholder="B-ARB_USDT"
+                    className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] font-mono"
+                    style={{
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-subtle)",
+                      color: "var(--text-primary)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => addPairToWatchlist()}
+                    className="text-[10px] px-2 py-1 rounded-md shrink-0"
+                    style={{ border: "1px solid var(--border-subtle)", color: "var(--accent)" }}
+                  >
+                    Add
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => resetWatchlist()}
+                  className="text-[10px] underline"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Reset to BTC / ETH / SOL
+                </button>
+              </div>
+            )}
+
             <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }} htmlFor="trading-pair-select">
-              Trading pair
+              {pairScope === "watchlist" ? "Watchlist pair" : "Active pair (catalog)"}
             </label>
             <select
               id="trading-pair-select"
@@ -497,7 +657,9 @@ export default function TradingDashboardPage() {
               ))}
             </select>
             <p className="text-[10px] leading-snug" style={{ color: "var(--text-muted)" }}>
-              Open the menu to choose a contract (list is sorted A–Z, first 1200 USDT pairs).
+              {pairScope === "watchlist"
+                ? "Only pairs in your watchlist appear here. Use All active to browse every USDT contract CoinDCX lists as active."
+                : "CoinDCX active USDT futures (inactive hidden when status is known). First 1200 shown, A–Z."}
             </p>
             {instError && (
               <p className="text-[11px]" style={{ color: "var(--error, #f87171)" }}>
@@ -506,11 +668,13 @@ export default function TradingDashboardPage() {
             )}
             <button
               type="button"
+              disabled={pairScope !== "catalog"}
               onClick={() => void loadInstruments()}
-              className="text-xs px-2 py-1 rounded-md hover:bg-white/5"
+              className="text-xs px-2 py-1 rounded-md hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+              title={pairScope !== "catalog" ? "Switch to “All active” to refresh the full catalog" : "Reload active instruments from CoinDCX"}
             >
-              Reload instruments
+              Reload catalog
             </button>
             <div className="flex flex-wrap gap-1 pt-2">
               {INTERVALS.map((iv) => (

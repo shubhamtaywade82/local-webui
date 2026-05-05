@@ -55,7 +55,11 @@ export default async function tradingRoutes(app: FastifyInstance) {
             status: String(a.status ?? ""),
           };
         })
-        .filter((r) => isCoinDcxFuturesPair(r.pair));
+        .filter((r) => isCoinDcxFuturesPair(r.pair))
+        .filter((r) => {
+          const st = String(r.status ?? "").toLowerCase();
+          return !st || st === "active";
+        });
       return { instruments };
     } catch (err) {
       return reply.code(502).send({ error: "instruments_failed", message: (err as Error).message });
