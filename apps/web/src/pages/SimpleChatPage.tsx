@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import MessageBubble from '../components/chat/MessageBubble';
@@ -16,15 +16,49 @@ function getAuthToken(): string | null {
   }
 }
 
-function loadChatSettings() {
+function readWorkspaceSettings(): Record<string, unknown> {
   try {
     const raw = localStorage.getItem('ai-workspace-settings');
-    const s = raw ? JSON.parse(raw) : {};
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Persist to the same keys the main workspace Settings use so both UIs stay aligned. */
+function writeSimpleChatPreferences(patch: {
+  providerMode?: ProviderMode;
+  model?: string;
+  thinking?: boolean;
+}) {
+  const s = readWorkspaceSettings();
+  const nextProviderMode = (patch.providerMode ?? s.providerMode ?? 'local') as ProviderMode;
+  const providerModels = {
+    ...((s.providerModels as Record<string, string> | undefined) || {}),
+  };
+  if (patch.model !== undefined) {
+    if (nextProviderMode === 'cloud') providerModels.cloud = patch.model;
+    else providerModels.local = patch.model;
+  }
+  const next = {
+    ...s,
+    providerMode: nextProviderMode,
+    providerModels,
+    ...(patch.thinking !== undefined ? { isThinkingEnabled: patch.thinking } : {}),
+  };
+  localStorage.setItem('ai-workspace-settings', JSON.stringify(next));
+}
+
+function loadChatSettings() {
+  try {
+    const s = readWorkspaceSettings();
     const providerMode: ProviderMode = s.providerMode === 'cloud' ? 'cloud' : 'local';
     const model =
       providerMode === 'cloud'
-        ? s.providerModels?.cloud || 'gpt-oss:20b'
-        : s.providerModels?.local || s.model || 'llama3.2:3b';
+        ? (s.providerModels as { cloud?: string } | undefined)?.cloud || 'gpt-oss:20b'
+        : (s.providerModels as { local?: string } | undefined)?.local ||
+          (typeof s.model === 'string' ? s.model : null) ||
+          'llama3.2:3b';
     return { providerMode, model, thinking: Boolean(s.isThinkingEnabled) };
   } catch {
     return { providerMode: 'local' as ProviderMode, model: 'llama3.2:3b', thinking: false };
@@ -34,8 +68,11 @@ function loadChatSettings() {
 export default function SimpleChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingState, setStreamingState] = useState<'idle' | 'streaming' | 'thinking' | 'error'>('idle');
-  const [thinking, setThinking] = useState(() => loadChatSettings().thinking);
-  const settings = loadChatSettings();
+  const initial = useMemo(() => loadChatSettings(), []);
+  const [thinking, setThinking] = useState(initial.thinking);
+  const [model, setModel] = useState(initial.model);
+  const [providerMode, setProviderMode] = useState<ProviderMode>(initial.providerMode);
+  const [availableModels, setAvailableModels] = useState<string[]>([initial.model]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const convIdRef = useRef<string>(
     sessionStorage.getItem(CONV_KEY) ||
@@ -47,6 +84,38 @@ export default function SimpleChatPage() {
   );
 
   const { pinToBottom } = useStickToBottomScroll(scrollRef, [messages]);
+
+  const modelRef = useRef(model);
+  modelRef.current = model;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/models?provider=${providerMode}`);
+        if (!res.ok) throw new Error('models');
+        const data = (await res.json()) as { models?: { name?: string }[] };
+        const names = (data.models || []).map((m) => m.name || '').filter(Boolean);
+        if (cancelled) return;
+        const current = modelRef.current;
+        const merged = [...new Set([...(names.length ? names : []), current])];
+        setAvailableModels(merged);
+        if (names.length && !names.includes(current)) {
+          const fallback = names[0];
+          setModel(fallback);
+          writeSimpleChatPreferences({ model: fallback, providerMode });
+        }
+      } catch {
+        if (!cancelled) {
+          const current = modelRef.current;
+          setAvailableModels((prev) => (prev.includes(current) ? prev : [...prev, current]));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [providerMode]);
 
   const sendMessage = useCallback(
     async (content: string) => {
@@ -83,7 +152,6 @@ export default function SimpleChatPage() {
       setStreamingState('streaming');
 
       ws.onopen = () => {
-        const { model, providerMode } = loadChatSettings();
         ws.send(
           JSON.stringify({
             provider: providerMode,
@@ -147,7 +215,7 @@ export default function SimpleChatPage() {
         );
       };
     },
-    [messages, streamingState, thinking, pinToBottom]
+    [messages, streamingState, thinking, model, providerMode, pinToBottom]
   );
 
   const isBusy = streamingState === 'streaming' || streamingState === 'thinking';
@@ -185,7 +253,7 @@ export default function SimpleChatPage() {
               Simple chat
             </div>
             <div className="text-[10px] truncate" style={{ color: 'var(--text-muted)' }}>
-              Streaming only · no tools or agent loop · route <code className="text-[10px]">/chst</code>
+              Streaming only · no tools or agent loop · route <code className="text-[10px]">/chat</code>
             </div>
           </div>
         </div>
@@ -194,7 +262,11 @@ export default function SimpleChatPage() {
             <input
               type="checkbox"
               checked={thinking}
-              onChange={(e) => setThinking(e.target.checked)}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setThinking(v);
+                writeSimpleChatPreferences({ thinking: v });
+              }}
               disabled={isBusy}
             />
             Thinking tags
@@ -228,8 +300,8 @@ export default function SimpleChatPage() {
                 Simple chat
               </h1>
               <p className="text-sm text-center max-w-md mb-2" style={{ color: 'var(--text-tertiary)' }}>
-                Direct LLM streaming with optional thinking-mode tags. Model and provider follow your saved workspace
-                settings.
+                Direct LLM streaming with optional thinking-mode tags. Pick model and provider below (saved with
+                workspace settings).
               </p>
             </div>
           ) : (
@@ -242,11 +314,68 @@ export default function SimpleChatPage() {
         </div>
       </div>
 
+      <div className="max-w-3xl mx-auto w-full px-3 md:px-4 flex flex-wrap items-center gap-2 pb-1">
+        <label className="text-[10px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+          Provider
+        </label>
+        <select
+          value={providerMode}
+          disabled={isBusy}
+          onChange={(e) => {
+            const mode = e.target.value as ProviderMode;
+            setProviderMode(mode);
+            writeSimpleChatPreferences({ providerMode: mode });
+            const s = readWorkspaceSettings();
+            const nextModel =
+              mode === 'cloud'
+                ? (s.providerModels as { cloud?: string } | undefined)?.cloud || 'gpt-oss:20b'
+                : (s.providerModels as { local?: string } | undefined)?.local ||
+                  (typeof s.model === 'string' ? s.model : null) ||
+                  'llama3.2:3b';
+            setModel(nextModel);
+          }}
+          className="text-[11px] rounded-md px-2 py-1 outline-none cursor-pointer disabled:opacity-40"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          <option value="local">Local (Ollama)</option>
+          <option value="cloud">Cloud (Ollama)</option>
+        </select>
+        <label className="text-[10px] font-medium uppercase tracking-wide ml-2" style={{ color: 'var(--text-muted)' }}>
+          Model
+        </label>
+        <select
+          value={model}
+          disabled={isBusy}
+          onChange={(e) => {
+            const v = e.target.value;
+            setModel(v);
+            writeSimpleChatPreferences({ model: v, providerMode });
+          }}
+          className="text-[11px] rounded-md px-2 py-1 min-w-[8rem] max-w-[min(100%,20rem)] outline-none cursor-pointer disabled:opacity-40 truncate"
+          style={{
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border-subtle)',
+            color: 'var(--text-secondary)',
+          }}
+          title={model}
+        >
+          {availableModels.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <ChatInput
         onSend={sendMessage}
         isDisabled={isBusy}
-        model={settings.model}
-        providerMode={settings.providerMode}
+        model={model}
+        providerMode={providerMode}
       />
     </div>
   );
