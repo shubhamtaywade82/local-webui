@@ -9,6 +9,7 @@ import LoginPage from './components/auth/LoginPage';
 import RegisterPage from './components/auth/RegisterPage';
 import SimpleChatPage from './pages/SimpleChatPage';
 import ComfyUIImagePage from './pages/ComfyUIImagePage';
+import TradingDashboardPage from './pages/TradingDashboardPage';
 
 function AppContent() {
   const { auth } = useAuthStore();
@@ -54,6 +55,14 @@ function ComfyUIImageRoute() {
   return <ComfyUIImagePage />;
 }
 
+function TradingDashboardRoute() {
+  const { auth } = useAuthStore();
+  if (!auth.token) {
+    return <Navigate to="/" replace />;
+  }
+  return <TradingDashboardPage />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -66,6 +75,7 @@ export default function App() {
         <Routes>
           <Route path="/chst" element={<SimpleChatRoute />} />
           <Route path="/comfy" element={<ComfyUIImageRoute />} />
+          <Route path="/trading" element={<TradingDashboardRoute />} />
           <Route path="/*" element={<AppContent />} />
         </Routes>
       </BrowserRouter>

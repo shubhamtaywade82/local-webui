@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  PanelLeft, Code2, MessageSquare, BookOpen, Database, Zap, Image
+  PanelLeft, Code2, MessageSquare, BookOpen, Database, Zap, Image, TrendingUp
 } from 'lucide-react';
 import { useResizablePanels, type PanelConfig } from '../../hooks/useResizablePanels';
 import Sidebar from './Sidebar';
@@ -93,6 +93,15 @@ export default function WorkspaceLayout() {
             >
               <Image size={14} />
               <span className="hidden sm:inline">ComfyUI</span>
+            </Link>
+            <Link
+              to="/trading"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
+              style={{ color: 'var(--text-tertiary)' }}
+              title="CoinDCX futures dashboard (public REST + market WebSocket)"
+            >
+              <TrendingUp size={14} />
+              <span className="hidden sm:inline">Trading</span>
             </Link>
             <button
               onClick={() => toggleCollapse('sql')}
