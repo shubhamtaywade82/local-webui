@@ -15,6 +15,7 @@ import kbRoutes from "./routes/kb";
 import filesRoutes from "./routes/files";
 import authRoutes from "./routes/auth";
 import marketRoutes from "./routes/market";
+import comfyuiRoutes from "./routes/comfyui";
 import { marketStream } from "./services/marketStream";
 import { startFuturesAutomation, stopFuturesAutomation } from "./services/futuresAutomation";
 
@@ -39,6 +40,7 @@ async function start() {
   await app.register(kbRoutes, { prefix: "/kb" });
   await app.register(filesRoutes, { prefix: "/files" });
   await app.register(marketRoutes, { prefix: "/market" });
+  await app.register(comfyuiRoutes, { prefix: "/comfyui" });
 
   // Global health check
   app.get("/health", async () => ({

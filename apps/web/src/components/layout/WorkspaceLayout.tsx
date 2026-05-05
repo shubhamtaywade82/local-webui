@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  PanelLeft, Code2, MessageSquare, BookOpen, Database, Zap
+  PanelLeft, Code2, MessageSquare, BookOpen, Database, Zap, Image
 } from 'lucide-react';
 import { useResizablePanels, type PanelConfig } from '../../hooks/useResizablePanels';
 import Sidebar from './Sidebar';
@@ -84,6 +84,15 @@ export default function WorkspaceLayout() {
             >
               <Zap size={14} />
               <span className="hidden sm:inline">Simple chat</span>
+            </Link>
+            <Link
+              to="/comfy"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium hover:bg-white/5 transition-colors"
+              style={{ color: 'var(--text-tertiary)' }}
+              title="ComfyUI image generation (proxied)"
+            >
+              <Image size={14} />
+              <span className="hidden sm:inline">ComfyUI</span>
             </Link>
             <button
               onClick={() => toggleCollapse('sql')}

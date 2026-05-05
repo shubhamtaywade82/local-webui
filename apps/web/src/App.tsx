@@ -8,6 +8,7 @@ import WorkspaceLayout from './components/layout/WorkspaceLayout';
 import LoginPage from './components/auth/LoginPage';
 import RegisterPage from './components/auth/RegisterPage';
 import SimpleChatPage from './pages/SimpleChatPage';
+import ComfyUIImagePage from './pages/ComfyUIImagePage';
 
 function AppContent() {
   const { auth } = useAuthStore();
@@ -45,6 +46,14 @@ function SimpleChatRoute() {
   );
 }
 
+function ComfyUIImageRoute() {
+  const { auth } = useAuthStore();
+  if (!auth.token) {
+    return <Navigate to="/" replace />;
+  }
+  return <ComfyUIImagePage />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -56,6 +65,7 @@ export default function App() {
       >
         <Routes>
           <Route path="/chst" element={<SimpleChatRoute />} />
+          <Route path="/comfy" element={<ComfyUIImageRoute />} />
           <Route path="/*" element={<AppContent />} />
         </Routes>
       </BrowserRouter>
