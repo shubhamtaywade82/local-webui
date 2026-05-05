@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "crypto";
 import { resolveComfyUiBaseUrl } from "../config/comfyuiBase";
+import { pingComfyUi } from "../services/comfyuiPing";
 
 async function forwardJson(res: Response, reply: FastifyReply) {
   const text = await res.text();
@@ -24,18 +25,23 @@ export default async function routes(app: FastifyInstance) {
     if (!base) {
       return { ok: false, configured: false, message: "Set COMFYUI_BASE_URL (e.g. http://127.0.0.1:8188)" };
     }
-    try {
-      const res = await fetch(`${base}/system_stats`, { method: "GET" });
+    const ping = await pingComfyUi(base);
+    if (ping.ok) {
       return {
-        ok: res.ok,
+        ok: true,
         configured: true,
         baseUrl: base,
-        comfyStatus: res.status,
+        pingPath: ping.path,
+        comfyStatus: ping.status,
       };
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { ok: false, configured: true, baseUrl: base, error: msg };
     }
+    return {
+      ok: false,
+      configured: true,
+      baseUrl: base,
+      error: ping.error,
+      triedPaths: ping.tried,
+    };
   });
 
   app.post("/prompt", async (req: FastifyRequest, reply: FastifyReply) => {

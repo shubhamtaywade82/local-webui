@@ -5,5 +5,8 @@
 export function resolveComfyUiBaseUrl(): string | null {
   const raw = process.env.COMFYUI_BASE_URL?.trim();
   if (!raw) return null;
-  return raw.replace(/\/+$/, "");
+  let u = raw.replace(/\/+$/, "");
+  // If user pasted the web UI URL, strip trailing /ui so API paths resolve.
+  u = u.replace(/\/(ui)\/?$/i, "");
+  return u;
 }
