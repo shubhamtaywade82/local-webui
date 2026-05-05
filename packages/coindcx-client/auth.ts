@@ -41,9 +41,10 @@ export class CoinDCXAuthClient {
     return res.json() as Promise<T>;
   }
 
-  async listOrders(pair?: string): Promise<FuturesOrderResponse[]> {
+  async listOrders(pair?: string, status?: string): Promise<FuturesOrderResponse[]> {
     const body: Record<string, unknown> = {};
     if (pair) body.pair = pair;
+    if (status) body.status = status;
     const data = await this.post<unknown>('/exchange/v1/derivatives/futures/orders', body);
     const arr = Array.isArray(data) ? data : (data as any)?.orders ?? [data];
     return arr as FuturesOrderResponse[];

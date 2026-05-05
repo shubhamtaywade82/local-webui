@@ -398,6 +398,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@workspace/coindcx-client':
+        specifier: workspace:*
+        version: link:../coindcx-client
       pg:
         specifier: ^8.11.5
         version: 8.20.0

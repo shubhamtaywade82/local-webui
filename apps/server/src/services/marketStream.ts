@@ -1,5 +1,6 @@
 import {
   CoinDCXStreamEngine,
+  buildPrivateStreamJoinFields,
   futuresCurrentPricesRtChannel,
   futuresLtpChannel,
 } from '@workspace/coindcx-client';
@@ -39,6 +40,27 @@ const ENGINE_FORWARDED_PRICE_EVENTS = new Set([
 
 /** Market Pulse grid only shows these bases — never emit updates with other `sym` keys. */
 const PULSE_BASES = new Set(['BTC', 'ETH', 'SOL']);
+
+/** Set `COINDCX_PRIVATE_STREAM=0` to skip the authenticated `coindcx` Socket.IO channel. */
+function envAllowsPrivateCoinDcxStream(): boolean {
+  const v = process.env.COINDCX_PRIVATE_STREAM;
+  if (v == null || v === '') return true;
+  return !['0', 'false', 'no', 'off'].includes(String(v).toLowerCase());
+}
+
+function subscribePrivateCoinDcxChannel(engine: CoinDCXStreamEngine): void {
+  if (!envAllowsPrivateCoinDcxStream()) return;
+  const apiKey = process.env.COINDCX_API_KEY?.trim();
+  const apiSecret = process.env.COINDCX_API_SECRET?.trim();
+  if (!apiKey || !apiSecret) return;
+
+  const { channelName, authSignature } = buildPrivateStreamJoinFields(apiKey, apiSecret, 'coindcx');
+  engine.subscribe(channelName, {
+    dualLegacyJoin: false,
+    authFields: { apiKey, authSignature },
+  });
+  console.log('CoinDCX: subscribed private user stream (coindcx) — balance / order / position updates');
+}
 
 class MarketStream extends EventEmitter {
   private engine: CoinDCXStreamEngine | null = null;
@@ -131,6 +153,7 @@ class MarketStream extends EventEmitter {
       this.engine.subscribe(futuresLtpChannel(pair));
     }
     this.engine.subscribe(futuresCurrentPricesRtChannel());
+    subscribePrivateCoinDcxChannel(this.engine);
 
     void this.engine
       .connect()

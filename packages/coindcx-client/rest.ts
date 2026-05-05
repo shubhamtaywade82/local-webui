@@ -120,7 +120,15 @@ export class CoinDCXRestClient {
     const res = await fetch(url.toString(), { signal: sig });
     if (!res.ok) throw new Error(`active_instruments ${res.status}: ${await res.text()}`);
     const data = await res.json();
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+    /** CoinDCX returns either `["B-BTC_USDT", …]` or full instrument objects — normalize to objects with `pair`. */
+    return data.map((item: unknown) => {
+      if (typeof item === 'string') {
+        const pair = item.trim();
+        return { pair, symbol: pair };
+      }
+      return item;
+    });
   }
 
   async fetchInstrumentDetails(

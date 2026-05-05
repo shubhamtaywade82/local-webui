@@ -8,6 +8,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@workspace/coindcx-client": "workspace:*",
     "pg": "^8.11.5"
   },
   "devDependencies": {

@@ -6,6 +6,7 @@ import type { TradeSignal } from '@workspace/signal-engine';
 import type { ExecutionResult, ExecutionDbAdapter } from './types';
 import {
   guardApiKeys,
+  guardPlaceOrderEnabled,
   guardSignalPresent,
   guardRiskApproved,
   guardMetadataFresh,
@@ -33,6 +34,7 @@ export class ExecutionEngine {
     // 1. Guards — fail fast
     for (const result of [
       guardApiKeys(),
+      guardPlaceOrderEnabled(),
       guardSignalPresent(signal),
       guardRiskApproved(riskDecision),
       guardMetadataFresh(this.registry, signal.pair),

@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { CoinDCXRestClient, isCoinDcxFuturesPair } from "@workspace/coindcx-client";
+import {
+  CoinDCXRestClient,
+  createAuthClientFromEnv,
+  isCoinDcxFuturesPair,
+} from "@workspace/coindcx-client";
+import { SmcAnalysisTool } from "@workspace/tools";
 
 const PUBLIC_FUTURES_RT = "https://public.coindcx.com/market_data/v3/current_prices/futures/rt";
 const rest = new CoinDCXRestClient();
@@ -90,6 +95,33 @@ export default async function tradingRoutes(app: FastifyInstance) {
     }
   });
 
+  /** Last closed bar for 1m / 15m / 1h (public) — MTF strip like the bot TUI. */
+  app.get("/futures/mtf-last", async (req, reply) => {
+    const q = req.query as { pair?: string };
+    const pair = parseFuturesPair(q.pair);
+    if (!pair) {
+      return reply.code(400).send({ error: "invalid_pair", hint: "Use CoinDCX form e.g. B-ETH_USDT" });
+    }
+    const frames = ["1m", "15m", "1h"] as const;
+    try {
+      const rows = await Promise.all(
+        frames.map(async (tf) => {
+          const bars = await rest.fetchOhlcv(pair, tf, 4);
+          const last = bars.at(-1);
+          return {
+            tf,
+            close: last?.close ?? null,
+            volume: last?.volume ?? null,
+            time: last?.time ?? null,
+          };
+        })
+      );
+      return { pair, rows };
+    } catch (err) {
+      return reply.code(502).send({ error: "mtf_failed", message: (err as Error).message });
+    }
+  });
+
   /** Recent public futures trades. */
   app.get("/futures/trades", async (req, reply) => {
     const q = req.query as { pair?: string };
@@ -102,6 +134,84 @@ export default async function tradingRoutes(app: FastifyInstance) {
       return { pair, trades };
     } catch (err) {
       return reply.code(502).send({ error: "trades_failed", message: (err as Error).message });
+    }
+  });
+
+  /**
+   * Authenticated snapshot: futures positions + open orders (same keys as TUI bot).
+   * Requires `COINDCX_API_KEY` + `COINDCX_API_SECRET` on the server.
+   */
+  app.get("/account/snapshot", async (_req, reply) => {
+    const auth = createAuthClientFromEnv();
+    if (!auth) {
+      return reply.send({
+        configured: false,
+        positions: [],
+        openOrders: [],
+        message:
+          "Set COINDCX_API_KEY and COINDCX_API_SECRET in apps/server/.env to show positions, PnL, and open orders.",
+      });
+    }
+    try {
+      const positions = await auth.getPositions();
+      let openOrdersRaw: unknown[] = [];
+      try {
+        openOrdersRaw = await auth.listOrders(undefined, "open");
+      } catch {
+        const all = await auth.listOrders();
+        const openish = new Set([
+          "open",
+          "pending",
+          "pending_initiated",
+          "partly_filled",
+          "partially_filled",
+          "trigger_pending",
+        ]);
+        openOrdersRaw = all.filter((o) => {
+          const st = String((o as { status?: string }).status ?? "").toLowerCase();
+          return openish.has(st);
+        });
+      }
+      const activePositions = positions.filter((p) => Math.abs(Number(p.quantity) || 0) > 1e-12);
+      const unrealizedTotal = activePositions.reduce(
+        (s, p) => s + (Number.isFinite(Number(p.unrealised_pnl)) ? Number(p.unrealised_pnl) : 0),
+        0
+      );
+      const openOrders = (openOrdersRaw as unknown[]).filter((o) => o && typeof o === "object");
+      return {
+        configured: true,
+        positions: activePositions,
+        openOrders,
+        unrealizedPnlUsdApprox: unrealizedTotal,
+      };
+    } catch (err) {
+      return reply.code(502).send({
+        configured: true,
+        error: (err as Error).message,
+        positions: [],
+        openOrders: [],
+      });
+    }
+  });
+
+  /**
+   * SMC / AI strategy pulse text for the focused pair (uses `@workspace/tools` SmcAnalysisTool — public OHLCV only).
+   * Query: `pair=B-ETH_USDT`, optional `mode=setup` (default) or `mode=full` for full_analysis.
+   */
+  app.get("/ai/smc", async (req, reply) => {
+    const q = req.query as { pair?: string; mode?: string };
+    const pair = parseFuturesPair(q.pair);
+    if (!pair) {
+      return reply.code(400).send({ error: "invalid_pair", hint: "Use e.g. B-ETH_USDT" });
+    }
+    const mode = String(q.mode ?? "setup").toLowerCase();
+    const action = mode === "full" ? "full_analysis" : "setup";
+    const tool = new SmcAnalysisTool();
+    try {
+      const text = await tool.execute({ action, symbol: pair });
+      return { pair, action, text };
+    } catch (err) {
+      return reply.code(500).send({ error: "smc_failed", message: (err as Error).message });
     }
   });
 }

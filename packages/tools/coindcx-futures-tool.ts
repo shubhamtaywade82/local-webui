@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import { isPlaceOrderEnvEnabled, PLACE_ORDER_DISABLED_MESSAGE } from '@workspace/coindcx-client';
 import { BaseTool, ToolSchema } from './types';
 
 const BASE_URL = 'https://api.coindcx.com';
@@ -71,7 +72,7 @@ export class CoinDCXFuturesTool extends BaseTool {
   readonly name = 'coindcx_futures';
   readonly description =
     'AUTHENTICATED ONLY: place/cancel/edit **your** CoinDCX futures orders, positions, margin, leverage. ' +
-    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. **Do not use** for market price, charts, or intraday trend — use **coindcx** or **smc_analysis** instead. ' +
+    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. Creating orders additionally requires PLACE_ORDER=true. **Do not use** for market price, charts, or intraday trend — use **coindcx** or **smc_analysis** instead. ' +
     'Pair format: B-BTC_USDT, B-ETH_USDT. Actions: list_orders | create_order | cancel_order | ' +
     'edit_order | positions | update_leverage | add_margin | remove_margin';
 
@@ -167,6 +168,9 @@ export class CoinDCXFuturesTool extends BaseTool {
         }
 
         case 'create_order': {
+          if (!isPlaceOrderEnvEnabled()) {
+            return PLACE_ORDER_DISABLED_MESSAGE;
+          }
           if (!pair) return 'Error: pair required (e.g. B-BTC_USDT)';
           if (!args.side) return 'Error: side required (buy or sell)';
           if (!args.order_type) return 'Error: order_type required (market_order or limit_order)';

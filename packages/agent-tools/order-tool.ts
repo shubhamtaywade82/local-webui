@@ -18,7 +18,7 @@ export class PlaceOrderTool extends BaseTool {
   readonly description =
     'Execute a futures order for a pair after running the full signal + risk pipeline. ' +
     'The LLM does NOT supply entry/SL/TP — all values come from the signal engine. ' +
-    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. ' +
+    'Requires COINDCX_API_KEY + COINDCX_API_SECRET and PLACE_ORDER=true (server env). ' +
     'Confirm with the user before calling this tool.';
 
   readonly schema: ToolSchema = {

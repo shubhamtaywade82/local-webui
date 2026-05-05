@@ -8,11 +8,25 @@ describe('CoinDCXFuturesTool', () => {
     vi.stubGlobal('fetch', vi.fn());
     vi.stubEnv('COINDCX_API_KEY', 'test-key');
     vi.stubEnv('COINDCX_API_SECRET', 'test-secret');
+    vi.stubEnv('PLACE_ORDER', 'true');
   });
 
   it('returns unknown action error', async () => {
     const result = await tool.execute({ action: 'invalid' });
     expect(result).toContain('Unknown action');
+  });
+
+  it('create_order is blocked when PLACE_ORDER is not enabled', async () => {
+    vi.stubEnv('PLACE_ORDER', '');
+    const result = await tool.execute({
+      action: 'create_order',
+      pair: 'B-BTC_USDT',
+      side: 'buy',
+      order_type: 'market_order',
+      quantity: '0.01',
+    });
+    expect(result).toContain('PLACE_ORDER');
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it('create_order requires pair', async () => {

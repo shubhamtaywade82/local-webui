@@ -1,3 +1,4 @@
+import { isPlaceOrderEnvEnabled, PLACE_ORDER_DISABLED_MESSAGE } from '@workspace/coindcx-client';
 import type { MarketRegistry } from '@workspace/market-registry';
 import type { RiskDecision } from '@workspace/risk-engine';
 import type { TradeSignal } from '@workspace/signal-engine';
@@ -11,6 +12,12 @@ export function guardApiKeys(): GuardResult {
   return hasKeys
     ? { ok: true }
     : { ok: false, reason: 'COINDCX_API_KEY and COINDCX_API_SECRET are not set' };
+}
+
+export function guardPlaceOrderEnabled(): GuardResult {
+  return isPlaceOrderEnvEnabled()
+    ? { ok: true }
+    : { ok: false, reason: PLACE_ORDER_DISABLED_MESSAGE };
 }
 
 export function guardSignalPresent(signal: TradeSignal | null): GuardResult {

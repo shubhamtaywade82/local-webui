@@ -23,6 +23,17 @@ type OrderBookPayload = {
   timestamp: number;
 };
 
+type AccountSnapshot = {
+  configured: boolean;
+  positions?: Record<string, unknown>[];
+  openOrders?: unknown[];
+  unrealizedPnlUsdApprox?: number;
+  message?: string;
+  error?: string;
+};
+
+type MtfRow = { tf: string; close: number | null; volume: number | null; time: number | null };
+
 const DEFAULT_PAIR = "B-BTC_USDT";
 const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 
@@ -73,9 +84,45 @@ function Sparkline({ closes, accent }: { closes: number[]; accent: string }) {
   );
 }
 
+function OrderBookDepth({ book, levels }: { book: OrderBookPayload; levels: number }) {
+  const bids = sortBookLevels(book.bids, "bid", levels);
+  const asks = [...sortBookLevels(book.asks, "ask", levels)].reverse();
+  const maxQ = Math.max(1e-12, ...bids.map((b) => b.qty), ...asks.map((a) => a.qty));
+  const row = (r: { price: number; qty: number }, kind: "ask" | "bid") => (
+    <div key={`${kind}-${r.price}`} className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem] gap-1 items-center leading-tight">
+      <span className={kind === "ask" ? "text-rose-300/95" : "text-emerald-300/95"}>{r.price}</span>
+      <span className="text-right tabular-nums" style={{ color: "var(--text-muted)" }}>
+        {r.qty < 1 ? r.qty.toFixed(4) : r.qty.toFixed(3)}
+      </span>
+      <div className="h-1.5 rounded-sm overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+        <div
+          className={kind === "ask" ? "h-full rounded-sm bg-rose-500/55" : "h-full rounded-sm bg-emerald-500/55"}
+          style={{ width: `${Math.min(100, (r.qty / maxQ) * 100)}%` }}
+        />
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-1 font-mono text-[10px]">
+      <div
+        className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem] gap-1 uppercase tracking-wider"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <span>Price</span>
+        <span className="text-right">Amt</span>
+        <span>Depth</span>
+      </div>
+      <div className="space-y-0.5 max-h-40 overflow-y-auto">{asks.map((r) => row(r, "ask"))}</div>
+      <div className="border-t border-b py-1 text-center text-[11px]" style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}>
+        mid / spread
+      </div>
+      <div className="space-y-0.5 max-h-40 overflow-y-auto">{bids.map((r) => row(r, "bid"))}</div>
+    </div>
+  );
+}
+
 export default function TradingDashboardPage() {
   const [instruments, setInstruments] = useState<InstrumentRow[]>([]);
-  const [instQuery, setInstQuery] = useState("");
   const [pair, setPair] = useState(DEFAULT_PAIR);
   const [barInterval, setBarInterval] = useState<string>("1h");
   const [pulse, setPulse] = useState<PulseRow[]>([]);
@@ -86,23 +133,31 @@ export default function TradingDashboardPage() {
   const [trades, setTrades] = useState<unknown[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [instError, setInstError] = useState<string | null>(null);
+  const [account, setAccount] = useState<AccountSnapshot | null>(null);
+  const [smcText, setSmcText] = useState<string>("");
+  const [smcBusy, setSmcBusy] = useState(false);
+  const [smcErr, setSmcErr] = useState<string | null>(null);
+  const [mtfRows, setMtfRows] = useState<MtfRow[]>([]);
+  const [logLines, setLogLines] = useState<string[]>([]);
 
-  const filteredInstruments = useMemo(() => {
-    const q = instQuery.trim().toLowerCase();
-    if (!q) return instruments.slice(0, 200);
-    return instruments.filter((r) => r.pair.toLowerCase().includes(q) || r.base.toLowerCase().includes(q)).slice(0, 200);
-  }, [instruments, instQuery]);
-
-  const selectOptions = useMemo(() => {
+  /** Sorted list for a normal `<select>` dropdown (cap length for browser performance). */
+  const pairSelectOptions = useMemo(() => {
+    const sorted = [...instruments].sort((a, b) => a.pair.localeCompare(b.pair)).slice(0, 1200);
     const base =
-      filteredInstruments.length > 0
-        ? filteredInstruments
-        : [{ pair: DEFAULT_PAIR, base: "BTC", quote: "USDT", status: "" }];
+      sorted.length > 0 ? sorted : [{ pair: DEFAULT_PAIR, base: "BTC", quote: "USDT", status: "" }];
     if (!base.some((r) => r.pair === pair)) {
       return [{ pair, base: "", quote: "", status: "" }, ...base];
     }
     return base;
-  }, [filteredInstruments, pair]);
+  }, [instruments, pair]);
+
+  const pushLog = useCallback((line: string) => {
+    setLogLines((prev) => {
+      const t = new Date().toLocaleTimeString();
+      const next = [`${t} ${line}`, ...prev].slice(0, 40);
+      return next;
+    });
+  }, []);
 
   const loadInstruments = useCallback(async () => {
     setInstError(null);
@@ -119,6 +174,55 @@ export default function TradingDashboardPage() {
   useEffect(() => {
     void loadInstruments();
   }, [loadInstruments]);
+
+  const loadAccount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/trading/account/snapshot");
+      const data = (await res.json()) as AccountSnapshot;
+      setAccount(data);
+    } catch {
+      setAccount({ configured: false, message: "Account snapshot request failed" });
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAccount();
+    const id = globalThis.setInterval(() => void loadAccount(), 12_000);
+    return () => globalThis.clearInterval(id);
+  }, [loadAccount]);
+
+  const loadSmcAndMtf = useCallback(async () => {
+    setSmcErr(null);
+    setSmcBusy(true);
+    pushLog(`SMC + MTF refresh for ${pair}`);
+    try {
+      const [smcRes, mtfRes] = await Promise.all([
+        fetch(`/api/trading/ai/smc?pair=${encodeURIComponent(pair)}&mode=setup`),
+        fetch(`/api/trading/futures/mtf-last?pair=${encodeURIComponent(pair)}`),
+      ]);
+      if (smcRes.ok) {
+        const j = (await smcRes.json()) as { text?: string };
+        setSmcText(typeof j.text === "string" ? j.text : "");
+      } else {
+        setSmcErr(await smcRes.text());
+        setSmcText("");
+      }
+      if (mtfRes.ok) {
+        const m = (await mtfRes.json()) as { rows?: MtfRow[] };
+        setMtfRows(Array.isArray(m.rows) ? m.rows : []);
+      } else {
+        setMtfRows([]);
+      }
+    } catch (e) {
+      setSmcErr((e as Error).message);
+    } finally {
+      setSmcBusy(false);
+    }
+  }, [pair, pushLog]);
+
+  useEffect(() => {
+    void loadSmcAndMtf();
+  }, [loadSmcAndMtf]);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,10 +275,10 @@ export default function TradingDashboardPage() {
 
   useEffect(() => {
     void refreshTickerPanels();
-    const id = window.setInterval(() => {
+    const id = globalThis.setInterval(() => {
       void refreshTickerPanels();
     }, 7_000);
-    return () => window.clearInterval(id);
+    return () => globalThis.clearInterval(id);
   }, [refreshTickerPanels]);
 
   useEffect(() => {
@@ -249,7 +353,7 @@ export default function TradingDashboardPage() {
     };
     connect();
     return () => {
-      if (reconnect !== undefined) window.clearTimeout(reconnect);
+      if (reconnect !== undefined) globalThis.clearTimeout(reconnect);
       socket?.close();
     };
   }, []);
@@ -343,45 +447,61 @@ export default function TradingDashboardPage() {
         </div>
 
         <div
-          className="rounded-xl p-4 border grid grid-cols-1 lg:grid-cols-3 gap-4"
-          style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}
+          className="rounded-lg border px-3 py-2 font-mono text-[10px] flex flex-wrap gap-x-4 gap-y-1"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
         >
-          <div className="lg:col-span-1 space-y-3">
-            <label className="block text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-              Pair
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>FOCUS</span> {pair}
+          </span>
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>WS</span> {wsLive ? "OK" : "—"}
+          </span>
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>API</span>{" "}
+            {account?.configured ? "keys" : "public-only"}
+          </span>
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>POS</span> {account?.positions?.length ?? "—"}
+          </span>
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>ORD</span> {account?.openOrders?.length ?? "—"}
+          </span>
+          <span>
+            <span style={{ color: "var(--text-muted)" }}>UR PnL</span>{" "}
+            {account?.configured && account.unrealizedPnlUsdApprox != null
+              ? `${account.unrealizedPnlUsdApprox >= 0 ? "+" : ""}${account.unrealizedPnlUsdApprox.toFixed(2)} USDT`
+              : "—"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+          <div className="rounded-xl border p-4 space-y-3" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
+            <label className="block text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "var(--text-muted)" }} htmlFor="trading-pair-select">
+              Trading pair
             </label>
-            <input
-              type="text"
-              value={instQuery}
-              onChange={(e) => setInstQuery(e.target.value)}
-              placeholder="Filter e.g. ETH, SOL, B-BTC"
-              className="w-full rounded-md px-2 py-1.5 text-sm"
-              style={{
-                background: "var(--bg-primary)",
-                border: "1px solid var(--border-subtle)",
-                color: "var(--text-primary)",
-              }}
-            />
             <select
+              id="trading-pair-select"
               value={pair}
               onChange={(e) => setPair(e.target.value)}
-              className="w-full rounded-md px-2 py-2 text-xs font-mono max-h-48"
-              size={10}
+              className="w-full rounded-md px-2 py-2 text-sm font-mono"
               style={{
                 background: "var(--bg-primary)",
                 border: "1px solid var(--border-subtle)",
                 color: "var(--text-primary)",
               }}
             >
-              {selectOptions.map((r) => (
+              {pairSelectOptions.map((r) => (
                 <option key={r.pair} value={r.pair}>
                   {r.pair}
                 </option>
               ))}
             </select>
+            <p className="text-[10px] leading-snug" style={{ color: "var(--text-muted)" }}>
+              Open the menu to choose a contract (list is sorted A–Z, first 1200 USDT pairs).
+            </p>
             {instError && (
               <p className="text-[11px]" style={{ color: "var(--error, #f87171)" }}>
-                Instruments: {instError}
+                {instError}
               </p>
             )}
             <button
@@ -392,19 +512,13 @@ export default function TradingDashboardPage() {
             >
               Reload instruments
             </button>
-          </div>
-
-          <div className="lg:col-span-2 space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-                Chart interval
-              </span>
+            <div className="flex flex-wrap gap-1 pt-2">
               {INTERVALS.map((iv) => (
                 <button
                   key={iv}
                   type="button"
                   onClick={() => setBarInterval(iv)}
-                  className="text-xs px-2 py-0.5 rounded-md"
+                  className="text-[10px] px-1.5 py-0.5 rounded"
                   style={{
                     background: barInterval === iv ? "var(--accent-muted)" : "transparent",
                     color: barInterval === iv ? "var(--accent)" : "var(--text-tertiary)",
@@ -415,123 +529,247 @@ export default function TradingDashboardPage() {
                 </button>
               ))}
             </div>
-
-            <div className="rounded-lg p-3 border" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}>
-              <div className="text-xs font-mono mb-2" style={{ color: "var(--text-secondary)" }}>
-                {pair} · close (last {closes.length} bars)
+            <div className="rounded-lg p-2 border" style={{ borderColor: "var(--border-subtle)", background: "var(--bg-primary)" }}>
+              <div className="text-[10px] font-mono mb-1" style={{ color: "var(--text-muted)" }}>
+                Chart · {closes.length} bars
               </div>
               <Sparkline closes={closes} accent="var(--accent)" />
             </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="grid grid-cols-2 gap-1 text-[10px]">
               {(
                 [
                   ["Mark", rtCell?.mp ?? rtCell?.mark_price],
                   ["Last", rtCell?.ls ?? rtCell?.last_price],
-                  ["24h high", rtCell?.h],
-                  ["24h low", rtCell?.l],
-                  ["24h change %", rtCell?.pc],
+                  ["24h H", rtCell?.h],
+                  ["24h L", rtCell?.l],
+                  ["24h %", rtCell?.pc],
                 ] as const
               ).map(([k, v]) => (
-                <div key={k} className="rounded-md p-2 border" style={{ borderColor: "var(--border-subtle)" }}>
+                <div key={k} className="rounded border px-1.5 py-1" style={{ borderColor: "var(--border-subtle)" }}>
                   <div style={{ color: "var(--text-muted)" }}>{k}</div>
-                  <div className="font-mono tabular-nums mt-0.5" style={{ color: "var(--text-primary)" }}>
+                  <div className="font-mono tabular-nums" style={{ color: "var(--text-primary)" }}>
                     {v != null && v !== "" ? String(v as string | number) : "—"}
                   </div>
                 </div>
               ))}
             </div>
           </div>
+
+          <div className="rounded-xl border p-4" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
+            <div className="text-xs font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+              BOOK · {pair}
+            </div>
+            <div className="text-[10px] mb-2 font-mono" style={{ color: "var(--text-muted)" }}>
+              bid {bestBid?.price ?? "—"} · ask {bestAsk?.price ?? "—"} · spr {spread}
+            </div>
+            {book ? <OrderBookDepth book={book} levels={10} /> : <div style={{ color: "var(--text-muted)" }}>Loading book…</div>}
+          </div>
+
+          <div className="rounded-xl border p-4 flex flex-col min-h-[280px]" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                AI strategy pulse (SMC)
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button
+                  type="button"
+                  disabled={smcBusy}
+                  onClick={() => void loadSmcAndMtf()}
+                  className="text-[10px] px-2 py-0.5 rounded border disabled:opacity-40"
+                  style={{ borderColor: "var(--border-subtle)", color: "var(--accent)" }}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  disabled={smcBusy}
+                  onClick={async () => {
+                    setSmcBusy(true);
+                    setSmcErr(null);
+                    try {
+                      const res = await fetch(`/api/trading/ai/smc?pair=${encodeURIComponent(pair)}&mode=full`);
+                      const j = (await res.json()) as { text?: string; error?: string };
+                      if (!res.ok) throw new Error(j.error ?? await res.text());
+                      setSmcText(typeof j.text === "string" ? j.text : "");
+                      pushLog("SMC full_analysis loaded");
+                    } catch (e) {
+                      setSmcErr((e as Error).message);
+                    } finally {
+                      setSmcBusy(false);
+                    }
+                  }}
+                  className="text-[10px] px-2 py-0.5 rounded border disabled:opacity-40"
+                  style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+                >
+                  Full
+                </button>
+              </div>
+            </div>
+            {mtfRows.length > 0 && (
+              <div className="flex flex-wrap gap-3 mb-2 text-[10px] font-mono" style={{ color: "var(--text-secondary)" }}>
+                {mtfRows.map((r) => (
+                  <span key={r.tf}>
+                    <span style={{ color: "var(--text-muted)" }}>{r.tf}</span>{" "}
+                    {r.close != null ? r.close.toFixed(r.close > 100 ? 2 : 4) : "—"}
+                    {r.volume != null ? (
+                      <span style={{ color: "var(--text-muted)" }}> · vol {r.volume < 1e4 ? r.volume.toFixed(0) : `${(r.volume / 1e3).toFixed(1)}K`}</span>
+                    ) : null}
+                  </span>
+                ))}
+              </div>
+            )}
+            {smcErr && <div className="text-[10px] text-rose-400 mb-2 break-all">{smcErr}</div>}
+            <pre
+              className="flex-1 overflow-auto text-[10px] leading-snug font-mono whitespace-pre-wrap rounded p-2 min-h-[160px]"
+              style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)", color: "var(--text-secondary)" }}
+            >
+              {smcBusy ? "Running SMC…" : smcText || "No SMC output yet."}
+            </pre>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div
-            className="rounded-xl border p-4"
-            style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}
-          >
+          <div className="rounded-xl border p-4" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
             <div className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
-              Order book (top 12)
+              Positions (futures)
             </div>
-            <div className="text-[10px] mb-3 font-mono" style={{ color: "var(--text-muted)" }}>
-              Best bid {bestBid?.price ?? "—"} · Best ask {bestAsk?.price ?? "—"} · Spread {spread}
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-[11px] font-mono">
-              <div>
-                <div className="uppercase tracking-wider mb-1" style={{ color: "var(--success, #4ade80)" }}>
-                  Bids
-                </div>
-                {book
-                  ? sortBookLevels(book.bids, "bid", 12).map((r) => (
-                      <div key={r.price} className="flex justify-between gap-2 py-0.5">
-                        <span style={{ color: "var(--text-primary)" }}>{r.price}</span>
-                        <span style={{ color: "var(--text-muted)" }}>{r.qty}</span>
-                      </div>
-                    ))
-                  : "—"}
+            {!account?.configured && (
+              <p className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                {account?.message ?? "Loading…"}
+              </p>
+            )}
+            {account?.configured && account.error && (
+              <p className="text-xs text-rose-400 mb-2">{account.error}</p>
+            )}
+            {account?.configured && !account.error && (account.positions?.length ?? 0) === 0 && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                No open positions.
+              </p>
+            )}
+            {account?.configured && (account.positions?.length ?? 0) > 0 && (
+              <div className="overflow-x-auto text-[10px] font-mono">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr style={{ color: "var(--text-muted)" }}>
+                      <th className="pr-2 py-1">Pair</th>
+                      <th className="pr-2 py-1">Side</th>
+                      <th className="pr-2 py-1">Qty</th>
+                      <th className="pr-2 py-1">Entry</th>
+                      <th className="pr-2 py-1">Mark</th>
+                      <th className="py-1">PnL</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {account!.positions!.map((p, i) => (
+                      <tr key={i} style={{ color: "var(--text-secondary)" }}>
+                        <td className="py-0.5 pr-2">{String(p.pair ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(p.side ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(p.quantity ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(p.entry_price ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(p.mark_price ?? "—")}</td>
+                        <td className="py-0.5">{String(p.unrealised_pnl ?? p.pnl ?? "—")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              <div>
-                <div className="uppercase tracking-wider mb-1" style={{ color: "var(--error, #f87171)" }}>
-                  Asks
-                </div>
-                {book
-                  ? sortBookLevels(book.asks, "ask", 12).map((r) => (
-                      <div key={r.price} className="flex justify-between gap-2 py-0.5">
-                        <span style={{ color: "var(--text-primary)" }}>{r.price}</span>
-                        <span style={{ color: "var(--text-muted)" }}>{r.qty}</span>
-                      </div>
-                    ))
-                  : "—"}
-              </div>
-            </div>
+            )}
           </div>
 
-          <div
-            className="rounded-xl border p-4"
-            style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}
-          >
+          <div className="rounded-xl border p-4" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
             <div className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
-              Recent public trades
+              Open orders
             </div>
-            <div className="overflow-x-auto text-[11px] font-mono max-h-64 overflow-y-auto">
-              <table className="w-full text-left">
-                <thead>
-                  <tr style={{ color: "var(--text-muted)" }}>
-                    <th className="py-1 pr-2">Time</th>
-                    <th className="py-1 pr-2">Side</th>
-                    <th className="py-1 pr-2">Price</th>
-                    <th className="py-1">Qty</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trades.slice(0, 20).map((t, i) => {
-                    const row = t as Record<string, unknown>;
-                    const ts = row.timestamp ?? row.T ?? row.time;
-                    const side = row.side ?? row.taker_side ?? row.S;
-                    const price = row.price ?? row.p;
-                    const qty = row.quantity ?? row.q ?? row.amount;
-                    return (
+            {account?.configured && (account.openOrders?.length ?? 0) === 0 && (
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                No open orders.
+              </p>
+            )}
+            {account?.configured && (account.openOrders?.length ?? 0) > 0 && (
+              <div className="overflow-x-auto text-[10px] font-mono max-h-48 overflow-y-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr style={{ color: "var(--text-muted)" }}>
+                      <th className="pr-2 py-1">Side</th>
+                      <th className="pr-2 py-1">Pair</th>
+                      <th className="pr-2 py-1">Qty</th>
+                      <th className="pr-2 py-1">Price</th>
+                      <th className="py-1">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(account!.openOrders! as Record<string, unknown>[]).map((o, i) => (
                       <tr key={i} style={{ color: "var(--text-secondary)" }}>
-                        <td className="py-0.5 pr-2">{String(ts ?? "—")}</td>
-                        <td className="py-0.5 pr-2">{String(side ?? "—")}</td>
-                        <td className="py-0.5 pr-2">{String(price ?? "—")}</td>
-                        <td className="py-0.5">{String(qty ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(o.side ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(o.pair ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(o.total_quantity ?? o.quantity ?? "—")}</td>
+                        <td className="py-0.5 pr-2">{String(o.price_per_unit ?? o.price ?? "—")}</td>
+                        <td className="py-0.5">{String(o.status ?? "—")}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {trades.length === 0 && <div style={{ color: "var(--text-muted)" }}>No trades in response</div>}
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
 
-        <p className="text-[11px] leading-relaxed max-w-3xl" style={{ color: "var(--text-muted)" }}>
-          Data is <strong>public</strong> CoinDCX REST (
-          <code className="text-[10px]">public.coindcx.com</code>, <code className="text-[10px]">api.coindcx.com</code>)
-          proxied by this app&apos;s <code className="text-[10px]">/trading/*</code> routes. Live BTC/ETH/SOL tiles use the
-          same <code className="text-[10px]">/market/ws</code> feed as Research (Socket.IO to CoinDCX on the server). Authenticated
-          orders and balances are not shown here — use API keys with the existing <code className="text-[10px]">coindcx_futures</code>{" "}
-          tool in chat or extend this page if you need account views.
+        <div className="rounded-xl border p-4" style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}>
+          <div className="text-sm font-medium mb-2" style={{ color: "var(--text-primary)" }}>
+            Recent public trades · {pair}
+          </div>
+          <div className="overflow-x-auto text-[11px] font-mono max-h-56 overflow-y-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr style={{ color: "var(--text-muted)" }}>
+                  <th className="py-1 pr-2">Time</th>
+                  <th className="py-1 pr-2">Side</th>
+                  <th className="py-1 pr-2">Price</th>
+                  <th className="py-1">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0, 24).map((t, i) => {
+                  const row = t as Record<string, unknown>;
+                  const ts = row.timestamp ?? row.T ?? row.time;
+                  const side = row.side ?? row.taker_side ?? row.S;
+                  const price = row.price ?? row.p;
+                  const qty = row.quantity ?? row.q ?? row.amount;
+                  return (
+                    <tr key={i} style={{ color: "var(--text-secondary)" }}>
+                      <td className="py-0.5 pr-2">{String(ts ?? "—")}</td>
+                      <td className="py-0.5 pr-2">{String(side ?? "—")}</td>
+                      <td className="py-0.5 pr-2">{String(price ?? "—")}</td>
+                      <td className="py-0.5">{String(qty ?? "—")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {trades.length === 0 && <div style={{ color: "var(--text-muted)" }}>No trades</div>}
+          </div>
+        </div>
+
+        {logLines.length > 0 && (
+          <div className="rounded-xl border p-3 font-mono text-[10px]" style={{ background: "var(--bg-primary)", borderColor: "var(--border-subtle)", color: "var(--text-muted)" }}>
+            <div className="uppercase tracking-wider mb-1" style={{ color: "var(--text-tertiary)" }}>
+              Activity
+            </div>
+            <div className="max-h-24 overflow-y-auto space-y-0.5">
+              {logLines.map((l, i) => (
+                <div key={i}>{l}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <p className="text-[11px] leading-relaxed max-w-4xl" style={{ color: "var(--text-muted)" }}>
+          Layout mirrors your <strong>coindcx-bot</strong> TUI: order book + depth, MTF strip, SMC / setup text, positions, and
+          orders. Public data uses CoinDCX REST; live BTC/ETH/SOL uses <code className="text-[10px]">/market/ws</code>.{" "}
+          <strong>Equity / wallet / INR</strong> rows are not wired yet (needs the same balance endpoints as the bot).{" "}
+          <strong>Orderflow / regime / signal history</strong> can be added by persisting bot events or calling extra public
+          endpoints. Set <code className="text-[10px]">COINDCX_API_KEY</code> +{" "}
+          <code className="text-[10px]">COINDCX_API_SECRET</code> on the server for positions and open orders.
         </p>
       </div>
     </div>

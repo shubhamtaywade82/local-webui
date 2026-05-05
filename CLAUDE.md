@@ -29,8 +29,10 @@ pnpm monorepo: **Vite + React** (`apps/web`), **Fastify** (`apps/server`), **@wo
 - `OLLAMA_API_KEY` — bearer token for direct access to the cloud Ollama API. Used only in `cloud` mode.
 - `KNOWLEDGE_ROOT` — RAG root relative to `apps/server` cwd (default `../../knowledge`).
 - `KNOWLEDGE_INGEST_PATH` — folder name under repo root for `scripts/ingest.ts` (default `knowledge`).
-- `COINDCX_API_KEY` — CoinDCX API key for authenticated futures trading tools.
+- `COINDCX_API_KEY` — CoinDCX API key for authenticated futures trading tools and (with secret) the private Socket.IO user stream.
 - `COINDCX_API_SECRET` — CoinDCX API secret for HMAC-SHA256 request signing.
+- `COINDCX_PRIVATE_STREAM` — optional. Set to `0` or `false` to skip the private `coindcx` stream join on the shared market Socket.IO client even when both API env vars are set.
+- `PLACE_ORDER` — must be `true` / `1` / `yes` / `on` to allow **creating** futures orders (`place_futures_order`, `coindcx_futures` `create_order`, execution engine). Default when unset: orders blocked.
 
 ## Touch points when editing
 
