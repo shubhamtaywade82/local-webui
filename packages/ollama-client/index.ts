@@ -2,6 +2,7 @@ import {
   Ollama,
   type AbortableAsyncIterator,
   type ChatResponse,
+  type GenerateResponse,
   type Message,
 } from "ollama";
 
@@ -48,6 +49,21 @@ export function getOllamaHeaders(
 
 export function getFallbackChatModel(provider: OllamaProvider = "local"): string {
   return provider === "cloud" ? "gpt-oss:20b" : "qwen2.5:0.5b";
+}
+
+/** Ollama library ID for goonsai prompt-expansion (completion-style) model. */
+export const GOONSAI_COMPLETION_MODEL = "goonsai/qwen2.5-3b-goonsai-nsfw-100k";
+
+/**
+ * Models that implement plain text completion via `/api/generate` (not chat).
+ * Matches goonsai slug with any tag (e.g. `:latest`).
+ */
+export function isCompletionStyleOllamaModel(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  if (!m) return false;
+  if (m.startsWith("goonsai/") && m.includes("goonsai-nsfw")) return true;
+  if (m.includes("qwen2.5-3b-goonsai-nsfw-100k")) return true;
+  return false;
 }
 
 export function createOllamaClient(provider: OllamaProvider = "local"): OllamaClient {
@@ -148,6 +164,80 @@ export class OllamaClient {
         throw new Error(`Ollama stream timed out or was aborted after ${DEFAULT_STREAM_TIMEOUT_MS}ms`);
       }
       console.error("[OllamaClient] Stream error:", err);
+      throw err instanceof Error ? err : new Error(String(err));
+    } finally {
+      clearTimeout(timeoutId);
+      closeNativeThinking();
+    }
+  }
+
+  /**
+   * Stream plain completion (`/api/generate`) — for completion-tuned models
+   * (e.g. goonsai prompt helpers) that do not follow the chat message format.
+   */
+  async streamGenerate(
+    model: string,
+    prompt: string,
+    onToken: (token: string) => void,
+    options?: { system?: string }
+  ): Promise<void> {
+    const req = {
+      model,
+      prompt,
+      stream: true as const,
+      ...(options?.system ? { system: options.system } : {}),
+    };
+
+    let iterator: AbortableAsyncIterator<GenerateResponse>;
+    try {
+      iterator = (await this.client.generate(req)) as AbortableAsyncIterator<GenerateResponse>;
+    } catch (err) {
+      console.error("[OllamaClient] Failed to start generate stream:", err);
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+
+    const timeoutId = setTimeout(() => iterator.abort(), DEFAULT_STREAM_TIMEOUT_MS);
+    let insideNativeThinking = false;
+    const closeNativeThinking = () => {
+      if (insideNativeThinking) {
+        onToken("</think>");
+        insideNativeThinking = false;
+      }
+    };
+    const emitNativeThinking = (t: string) => {
+      if (!t) return;
+      if (!insideNativeThinking) {
+        onToken("<think>");
+        insideNativeThinking = true;
+      }
+      onToken(t);
+    };
+    const emitContent = (t: string) => {
+      if (!t) return;
+      closeNativeThinking();
+      onToken(t);
+    };
+
+    try {
+      for await (const part of iterator) {
+        if (part.thinking) {
+          emitNativeThinking(part.thinking);
+        }
+        if (part.response) {
+          emitContent(part.response);
+        }
+        if (part.done) {
+          console.log("[OllamaClient] Generate stream done");
+          return;
+        }
+      }
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      const isAbort = name === "AbortError" || (err instanceof Error && /abort/i.test(err.message));
+      if (isAbort) {
+        throw new Error(`Ollama generate stream timed out or was aborted after ${DEFAULT_STREAM_TIMEOUT_MS}ms`);
+      }
+      console.error("[OllamaClient] Generate stream error:", err);
       throw err instanceof Error ? err : new Error(String(err));
     } finally {
       clearTimeout(timeoutId);

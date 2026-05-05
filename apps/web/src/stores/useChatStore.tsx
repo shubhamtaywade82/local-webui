@@ -81,10 +81,12 @@ type ChatAction =
 
 // ── Reducer ──
 
+// goonsai/qwen2.5-3b-goonsai-nsfw-100k: Ollama Hub `goonsai/qwen2.5-3B-goonsai-nsfw-100k` (completion /api/generate on server)
 const DEFAULT_LOCAL_MODELS = [
   'llama3.2:3b',
   'qwen3.5:4b',
   'qwen2.5:0.5b',
+  'goonsai/qwen2.5-3b-goonsai-nsfw-100k',
   'deepseek-coder:6.7b'
 ];
 

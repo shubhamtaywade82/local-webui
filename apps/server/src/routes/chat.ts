@@ -5,6 +5,7 @@ import { FastifyInstance } from "fastify";
 import {
   createOllamaClient,
   getFallbackChatModel,
+  isCompletionStyleOllamaModel,
   resolveOllamaProvider,
 } from "@workspace/ollama-client";
 import {
@@ -304,6 +305,8 @@ function handleWs(connection: any, req: any) {
         typeof model === "string" && model.trim()
           ? model.trim()
           : getFallbackChatModel(requestedProvider);
+      const completionModel = isCompletionStyleOllamaModel(requestedModel);
+      const effectiveAgentMode = Boolean(agentMode) && !completionModel;
       const ollama = createOllamaClient(requestedProvider);
 
       // userId from WS upgrade headers OR from first-message token (WS can't send custom headers)
@@ -332,7 +335,7 @@ function handleWs(connection: any, req: any) {
       let contextDocs: any[] = [];
       let systemPromptText: string;
 
-      if (isSimpleChat) {
+      if (isSimpleChat && !completionModel) {
         const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
         systemPromptText = base;
         if (thinking) {
@@ -340,6 +343,19 @@ function handleWs(connection: any, req: any) {
 You MUST reason step-by-step before providing your final answer.
 Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
         }
+      } else if (completionModel) {
+        if (isSimpleChat) {
+          const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
+          systemPromptText = base;
+          if (thinking) {
+            systemPromptText += `\n\nTHINKING MODE ENABLED:
+You MUST reason step-by-step before providing your final answer.
+Wrap your internal reasoning process entirely within <think>...</think> tags.`;
+          }
+        } else {
+          systemPromptText = customSystemPrompt?.trim() || "";
+        }
+        contextDocs = [];
       } else {
       // 1. Retrieve Knowledge (RAG) — filter out low-relevance results (cosine < 0.35)
       const MIN_RAG_SCORE = 0.35;
@@ -421,11 +437,13 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
       }
 
       const systemPromptMsg = { role: 'system', content: systemPromptText };
-      const finalMessages = isSimpleChat
-        ? [systemPromptMsg, ...messages]
-        : sendConversationHistory
+      const finalMessages = completionModel
+        ? []
+        : isSimpleChat
           ? [systemPromptMsg, ...messages]
-          : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
+          : sendConversationHistory
+            ? [systemPromptMsg, ...messages]
+            : [systemPromptMsg, { role: 'user' as const, content: lastUserMessage }];
 
       // 4. Persist user message
       await db.saveMessage(currentConversationId, 'user', lastUserMessage);
@@ -439,7 +457,7 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
       let fullAssistantResponse = "";
       let savedMessageId: string | null = null;
 
-      if (agentMode && !isSimpleChat) {
+      if (effectiveAgentMode && !isSimpleChat) {
         // ── Agent mode: ReAct loop ──
         const emitStepEvt = (id: string, label: string, status: 'running' | 'success' | 'error', tool?: string) => {
           connection.socket.send(JSON.stringify({
@@ -560,7 +578,7 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
         const startTime = Date.now();
 
         const emitStep = (id: string, label: string, status: 'running' | 'success', tool?: string) => {
-          if (isSimpleChat) return;
+          if (isSimpleChat || completionModel) return;
           if (status === 'success' && stepsEmitted.has(id)) return;
           connection.socket.send(JSON.stringify({
             type: 'agent_step',
@@ -573,48 +591,61 @@ Wrap your internal reasoning process entirely within <redacted_thinking>...</red
         emitStep('planning', 'Planning how to answer…', 'success');
 
         try {
-          await withSpan('chat', 'ollama.stream', () => ollama.stream(
-            requestedModel,
-            finalMessages,
-            (token) => {
-              fullAssistantResponse += token;
-              buffer += token;
+          const onStreamToken = (token: string) => {
+            fullAssistantResponse += token;
+            buffer += token;
 
-              connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
+            connection.socket.send(JSON.stringify({ type: 'token', token, conversation_id: currentConversationId }));
 
-              if (buffer.includes("<redacted_thinking>") && !stepsEmitted.has('thinking')) {
-                emitStep('thinking', 'Reasoning step-by-step', 'running');
+            if (buffer.includes("<think>") && !stepsEmitted.has('thinking')) {
+              emitStep('thinking', 'Reasoning step-by-step', 'running');
+            }
+            if (buffer.includes("</think>") && !stepsEmitted.has('thinking-done')) {
+              emitStep('thinking', 'Reasoning complete', 'success');
+              stepsEmitted.add('thinking-done');
+            }
+
+            if (!isSimpleChat && !completionModel && buffer.includes("<tool>edit_file</tool>")) {
+              if (!stepsEmitted.has('tool-edit-file')) {
+                emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
               }
-              if (buffer.includes("</redacted_thinking>") && !stepsEmitted.has('thinking-done')) {
-                emitStep('thinking', 'Reasoning complete', 'success');
-                stepsEmitted.add('thinking-done');
-              }
-
-              if (!isSimpleChat && buffer.includes("<tool>edit_file</tool>")) {
-                if (!stepsEmitted.has('tool-edit-file')) {
-                  emitStep('tool-edit-file', 'Preparing to edit file', 'running', 'edit_file');
-                }
-                if (buffer.includes("</content>")) {
-                  const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
-                  const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
-                  if (pathMatch && contentMatch) {
-                    const filePath = pathMatch[1].trim();
-                    const fileContent = contentMatch[1].trim();
-                    emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
-                    connection.socket.send(JSON.stringify({
-                      type: 'tool_call', tool: 'edit_file',
-                      path: filePath, content: fileContent,
-                      conversation_id: currentConversationId
-                    }));
-                    buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
-                  }
+              if (buffer.includes("</content>")) {
+                const pathMatch = buffer.match(/<path>(.*?)<\/path>/);
+                const contentMatch = buffer.match(/<content>([\s\S]*?)<\/content>/);
+                if (pathMatch && contentMatch) {
+                  const filePath = pathMatch[1].trim();
+                  const fileContent = contentMatch[1].trim();
+                  emitStep('tool-edit-file', `Modified ${filePath}`, 'success', 'edit_file');
+                  connection.socket.send(JSON.stringify({
+                    type: 'tool_call', tool: 'edit_file',
+                    path: filePath, content: fileContent,
+                    conversation_id: currentConversationId
+                  }));
+                  buffer = buffer.substring(buffer.indexOf("</content>") + "</content>".length);
                 }
               }
-            },
-            // UI "Thinking" uses XML in the system prompt only. Native Ollama `think: true` can stall
-            // non–thinking-tuned models (e.g. llama3.2); explicitly turn native thinking off here.
-            thinking ? { think: false } : undefined
-          ));
+            }
+          };
+
+          await withSpan('chat', 'ollama.stream', () =>
+            completionModel
+              ? ollama.streamGenerate(
+                  requestedModel,
+                  lastUserMessage,
+                  onStreamToken,
+                  systemPromptText.trim()
+                    ? { system: systemPromptText }
+                    : undefined
+                )
+              : ollama.stream(
+                  requestedModel,
+                  finalMessages,
+                  onStreamToken,
+                  // UI "Thinking" uses XML in the system prompt only. Native Ollama `think: true` can stall
+                  // non–thinking-tuned models (e.g. llama3.2); explicitly turn native thinking off here.
+                  thinking ? { think: false } : undefined
+                )
+          );
 
           emitStep('synthesis', 'Finalizing response', 'success');
           connection.socket.send(JSON.stringify({ type: 'done', conversation_id: currentConversationId }));
