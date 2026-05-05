@@ -10,6 +10,7 @@ We’ll design a modular, event‑driven WebSocket client for CoinDCX that is pl
 Package Structure
 
 ```
+
 coindcx-socket/
 ├── src/
 │   ├── core/
@@ -28,6 +29,7 @@ coindcx-socket/
 ├── package.json
 ├── tsconfig.json
 └── README.md
+
 ```
 
 ---
@@ -44,7 +46,7 @@ import EventEmitter from 'events';
 export const eventBus = new EventEmitter();
 ```
 
-2. ConnectionManager
+1. ConnectionManager
 
 Manages the Socket.IO connection, reconnection logic, and heartbeats.
 
@@ -82,7 +84,7 @@ export class ConnectionManager {
 }
 ```
 
-3. ChannelManager
+1. ChannelManager
 
 Handles joining/leaving channels and forwards incoming events to the EventBus.
 
@@ -126,7 +128,7 @@ export class ChannelManager {
 }
 ```
 
-4. AuthProvider
+1. AuthProvider
 
 Generates HMAC‑SHA256 signatures required for private channels.
 
@@ -146,7 +148,7 @@ export class AuthProvider {
 }
 ```
 
-5. Main CoinDCXSocket Class
+1. Main CoinDCXSocket Class
 
 The public API that ties everything together.
 
@@ -315,8 +317,10 @@ Next Steps
 · Testing – Unit tests with mocked Socket.IO.
 
 This design gives you a clean, event‑driven package that can be dropped into any application with minimal configuration. Would you like me to elaborate on any specific part or provide a working prototype repository?
+
 ```
 ```
+
 We'll design a modular WebSocket engine for CoinDCX Futures that is pluggable, event-driven, and handles all subscription types. The implementation uses socket.io-client v2, Node.js EventEmitter, and includes robust reconnection logic.
 
 Package Overview
@@ -872,6 +876,7 @@ Notes
 · Error Handling: All errors are emitted via the error event; the caller can decide on retry strategies.
 
 This package is ready to be dropped into any Node.js/TypeScript project and extended as needed.
+
 ```
 
 **Direct answer:**
@@ -974,6 +979,7 @@ Your current direction is slightly fragmented.
 ### Unified Engine + Market Modules
 
 ```
+
 CoinDCXWebSocketEngine
 ├── core/
 │   ├── ConnectionManager
@@ -999,6 +1005,7 @@ CoinDCXWebSocketEngine
 │   ├── PriceStream
 │
 └── CoinDCXClient (public API)
+
 ```
 
 ---
@@ -1119,7 +1126,7 @@ WebSocket → EventRouter → Cache → Strategy Engine → Execution
   * **(1) SDK wrapper**
   * **(2) Trading engine**
 
-### You need:
+### You need
 
 > **A unified, stateful, event-driven WebSocket engine with pluggable market adapters**
 
@@ -2251,8 +2258,11 @@ Do not let strategies mutate websocket internals. They should only read from cac
 * confirm candle/depth/trade parsing works for both spot and futures channels
 * confirm private subscription requires credentials
 
+### Automated (this repo)
+
+* `pnpm --filter @workspace/coindcx-client test` — runs unit tests plus an HTTP check that `https://public.coindcx.com/market_data/v3/current_prices/futures/rt` returns `prices.B-BTC_USDT` (same contract the Market Pulse HTTP fallback uses). No API keys; needs outbound HTTPS.
+* `COINDCX_LIVE_E2E=1 pnpm --filter @workspace/coindcx-client exec vitest run stream/coindcx-live.e2e.test.ts` — live Socket.IO **v2** client to `wss://stream.coindcx.com`, `join` on `B-BTC_USDT@prices-futures` and on `currentPrices@futures@rt`, asserts at least one forwarded price event. Requires outbound network.
+
 If you want the next step, I’ll turn this into a complete repo-grade package with tests, a Rails webhook sink, and a depth-delta reconciler.
 
 [1]: https://docs.coindcx.com/?utm_source=chatgpt.com "Terms and Conditions – API Reference - CoinDCX"
-
-

@@ -1,0 +1,18 @@
+{
+  "name": "@workspace/agent-tools",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@workspace/tools": "workspace:*",
+    "@workspace/coindcx-client": "workspace:*",
+    "@workspace/market-registry": "workspace:*",
+    "@workspace/timeframe-engine": "workspace:*",
+    "@workspace/signal-engine": "workspace:*",
+    "@workspace/risk-engine": "workspace:*",
+    "@workspace/execution-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

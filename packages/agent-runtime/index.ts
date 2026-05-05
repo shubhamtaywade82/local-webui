@@ -5,3 +5,10 @@ export {
   humanizeToolDone,
   humanizePendingStepLabel
 } from './humanizeAgentActivity';
+export {
+  tryExtractFinishToolCall,
+  formatAssistantAgentOutput,
+  looksLikeAgentEnvelope,
+  decodeLiteralEscapeSequencesInAnswer,
+  extractAgentFinishThought,
+} from './extractFinishAnswer';

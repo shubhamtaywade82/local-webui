@@ -126,7 +126,153 @@ ConversationSummary.init({
   updatedAt: false,
 });
 
-// Associations
+// ── Trading models ──────────────────────────────────────────────────────────
+
+class FuturesInstrument extends Model {
+  declare id: string;
+  declare pair: string;
+  declare status: string;
+  declare metadata: Record<string, unknown>;
+  declare updatedAt: Date;
+}
+FuturesInstrument.init({
+  id:       { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  pair:     { type: DataTypes.TEXT, allowNull: false, unique: true },
+  status:   { type: DataTypes.TEXT, allowNull: false, defaultValue: 'active' },
+  metadata: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+}, { sequelize, modelName: 'futures_instrument', underscored: true, createdAt: false });
+
+class CandleSnapshot extends Model {
+  declare id: string;
+  declare pair: string;
+  declare timeframe: string;
+  declare candles: unknown[];
+  declare asOf: Date;
+  declare updatedAt: Date;
+}
+CandleSnapshot.init({
+  id:        { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  pair:      { type: DataTypes.TEXT, allowNull: false },
+  timeframe: { type: DataTypes.TEXT, allowNull: false },
+  candles:   { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
+  asOf:      { type: DataTypes.DATE, allowNull: false },
+}, {
+  sequelize, modelName: 'candle_snapshot', underscored: true, createdAt: false,
+  indexes: [{ unique: true, fields: ['pair', 'timeframe'] }],
+});
+
+class TradeSignal extends Model {
+  declare id: string;
+  declare pair: string;
+  declare direction: string;
+  declare entryType: string;
+  declare entry: number;
+  declare stopLoss: number;
+  declare takeProfit: number;
+  declare confidence: number;
+  declare reasons: string[];
+  declare timeframes: Record<string, unknown>;
+  declare status: string;
+  declare createdAt: Date;
+}
+TradeSignal.init({
+  id:          { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  pair:        { type: DataTypes.TEXT, allowNull: false },
+  direction:   { type: DataTypes.TEXT, allowNull: false },
+  entryType:   { type: DataTypes.TEXT, allowNull: false, defaultValue: 'market' },
+  entry:       { type: DataTypes.FLOAT, allowNull: false },
+  stopLoss:    { type: DataTypes.FLOAT, allowNull: false },
+  takeProfit:  { type: DataTypes.FLOAT, allowNull: false },
+  confidence:  { type: DataTypes.FLOAT, allowNull: false },
+  reasons:     { type: DataTypes.JSONB, allowNull: false, defaultValue: [] },
+  timeframes:  { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+  status:      { type: DataTypes.TEXT, allowNull: false, defaultValue: 'pending' },
+}, { sequelize, modelName: 'trade_signal', underscored: true, updatedAt: false });
+
+class Order extends Model {
+  declare id: string;
+  declare signalId: string | null;
+  declare pair: string;
+  declare side: string;
+  declare quantity: number;
+  declare leverage: number;
+  declare orderType: string;
+  declare pricePerUnit: number | null;
+  declare exchangeOrderId: string | null;
+  declare status: string;
+  declare createdAt: Date;
+}
+Order.init({
+  id:              { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  signalId:        { type: DataTypes.UUID, allowNull: true },
+  pair:            { type: DataTypes.TEXT, allowNull: false },
+  side:            { type: DataTypes.TEXT, allowNull: false },
+  quantity:        { type: DataTypes.FLOAT, allowNull: false },
+  leverage:        { type: DataTypes.INTEGER, allowNull: false },
+  orderType:       { type: DataTypes.TEXT, allowNull: false },
+  pricePerUnit:    { type: DataTypes.FLOAT, allowNull: true },
+  exchangeOrderId: { type: DataTypes.TEXT, allowNull: true },
+  status:          { type: DataTypes.TEXT, allowNull: false, defaultValue: 'pending' },
+}, { sequelize, modelName: 'order', underscored: true, updatedAt: false });
+
+class Position extends Model {
+  declare id: string;
+  declare orderId: string | null;
+  declare pair: string;
+  declare side: string;
+  declare quantity: number;
+  declare entryPrice: number;
+  declare leverage: number;
+  declare liquidationPrice: number | null;
+  declare unrealisedPnl: number | null;
+  declare status: string;
+  declare createdAt: Date;
+  declare updatedAt: Date;
+}
+Position.init({
+  id:               { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  orderId:          { type: DataTypes.UUID, allowNull: true },
+  pair:             { type: DataTypes.TEXT, allowNull: false },
+  side:             { type: DataTypes.TEXT, allowNull: false },
+  quantity:         { type: DataTypes.FLOAT, allowNull: false },
+  entryPrice:       { type: DataTypes.FLOAT, allowNull: false },
+  leverage:         { type: DataTypes.INTEGER, allowNull: false },
+  liquidationPrice: { type: DataTypes.FLOAT, allowNull: true },
+  unrealisedPnl:    { type: DataTypes.FLOAT, allowNull: true },
+  status:           { type: DataTypes.TEXT, allowNull: false, defaultValue: 'open' },
+}, { sequelize, modelName: 'position', underscored: true });
+
+class Fill extends Model {
+  declare id: string;
+  declare orderId: string;
+  declare price: number;
+  declare quantity: number;
+  declare fee: number;
+  declare timestamp: Date;
+}
+Fill.init({
+  id:        { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  orderId:   { type: DataTypes.UUID, allowNull: false },
+  price:     { type: DataTypes.FLOAT, allowNull: false },
+  quantity:  { type: DataTypes.FLOAT, allowNull: false },
+  fee:       { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+  timestamp: { type: DataTypes.DATE, allowNull: false },
+}, { sequelize, modelName: 'fill', underscored: true, updatedAt: false, createdAt: false });
+
+class ExecutionEvent extends Model {
+  declare id: string;
+  declare eventType: string;
+  declare payload: Record<string, unknown>;
+  declare createdAt: Date;
+}
+ExecutionEvent.init({
+  id:        { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
+  eventType: { type: DataTypes.TEXT, allowNull: false },
+  payload:   { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
+}, { sequelize, modelName: 'execution_event', underscored: true, updatedAt: false });
+
+// ── Associations ─────────────────────────────────────────────────────────────
+
 User.hasMany(Conversation, { foreignKey: 'userId' });
 Conversation.belongsTo(User, { foreignKey: 'userId' });
 
@@ -261,6 +407,75 @@ export const db = {
    * Persist rolling summary for long threads. Requires a `conversations` row — if the DB has
    * orphaned messages (no parent row), we create the parent first to satisfy FK constraints.
    */
+  // ── Trading helpers ──────────────────────────────────────────────────────
+
+  async saveFuturesInstrument(pair: string, status: string, metadata: Record<string, unknown>) {
+    const existing = await FuturesInstrument.findOne({ where: { pair } });
+    if (existing) return existing.update({ status, metadata });
+    return FuturesInstrument.create({ pair, status, metadata });
+  },
+
+  async listActiveFuturesInstruments() {
+    return FuturesInstrument.findAll({ where: { status: 'active' } });
+  },
+
+  async upsertCandleSnapshot(pair: string, timeframe: string, candles: unknown[], asOf: Date) {
+    const existing = await CandleSnapshot.findOne({ where: { pair, timeframe } });
+    if (existing) return existing.update({ candles, asOf });
+    return CandleSnapshot.create({ pair, timeframe, candles, asOf });
+  },
+
+  async getCandleSnapshot(pair: string, timeframe: string) {
+    return CandleSnapshot.findOne({ where: { pair, timeframe } });
+  },
+
+  async saveTradeSignal(signal: {
+    pair: string; direction: string; entryType: string; entry: number;
+    stopLoss: number; takeProfit: number; confidence: number;
+    reasons: string[]; timeframes: Record<string, unknown>; status?: string;
+  }) {
+    const row = await TradeSignal.create({ ...signal });
+    return row.id;
+  },
+
+  async saveOrder(order: {
+    signalId?: string; pair: string; side: string; quantity: number;
+    leverage: number; orderType: string; pricePerUnit?: number;
+    exchangeOrderId?: string; status?: string;
+  }) {
+    return Order.create({ ...order });
+  },
+
+  async updateOrderStatus(id: string, status: string, exchangeOrderId?: string) {
+    await Order.update({ status, ...(exchangeOrderId ? { exchangeOrderId } : {}) }, { where: { id } });
+  },
+
+  async savePosition(position: {
+    orderId?: string; pair: string; side: string; quantity: number;
+    entryPrice: number; leverage: number; liquidationPrice?: number;
+    unrealisedPnl?: number; status?: string;
+  }) {
+    return Position.create({ ...position });
+  },
+
+  async updatePosition(id: string, updates: Record<string, unknown>) {
+    await Position.update(updates, { where: { id } });
+  },
+
+  async getOpenPosition(pair: string) {
+    return Position.findOne({ where: { pair, status: 'open' } });
+  },
+
+  async saveFill(fill: { orderId: string; price: number; quantity: number; fee: number; timestamp: Date }) {
+    return Fill.create({ ...fill });
+  },
+
+  async saveExecutionEvent(eventType: string, payload: Record<string, unknown>) {
+    return ExecutionEvent.create({ eventType, payload });
+  },
+
+  // ── Summary helpers ───────────────────────────────────────────────────────
+
   async upsertSummary(
     conversationId: string,
     summary: string,

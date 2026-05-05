@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "main": "index.ts",
   "types": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./extractFinishAnswer": "./extractFinishAnswer.ts"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest"

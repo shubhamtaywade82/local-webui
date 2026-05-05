@@ -47,6 +47,8 @@ interface ChatState {
   agentStepMode: 'auto' | 'step';
   maxIterations: number;
   shikiTheme: string;
+  /** When false, each request sends only the latest user message to the model (no prior turns). */
+  includeConversationHistory: boolean;
 }
 
 // ── Actions ──
@@ -74,7 +76,8 @@ type ChatAction =
   | { type: 'TOGGLE_AGENT_MODE' }
   | { type: 'SET_AGENT_STEP_MODE'; mode: 'auto' | 'step' }
   | { type: 'SET_MAX_ITERATIONS'; count: number }
-  | { type: 'SET_SHIKI_THEME'; theme: string };
+  | { type: 'SET_SHIKI_THEME'; theme: string }
+  | { type: 'SET_INCLUDE_CONVERSATION_HISTORY'; value: boolean };
 
 // ── Reducer ──
 
@@ -324,6 +327,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
     case 'SET_SHIKI_THEME':
       return { ...state, shikiTheme: action.theme };
 
+    case 'SET_INCLUDE_CONVERSATION_HISTORY':
+      return { ...state, includeConversationHistory: action.value };
+
     default:
       return state;
   }
@@ -369,7 +375,8 @@ const initialState: ChatState = {
   agentMode: savedSettings.agentMode ?? false,
   agentStepMode: savedSettings.agentStepMode || 'auto',
   maxIterations: savedSettings.maxIterations ?? 10,
-  shikiTheme: savedSettings.shikiTheme || 'github-dark'
+  shikiTheme: savedSettings.shikiTheme || 'github-dark',
+  includeConversationHistory: savedSettings.includeConversationHistory === true,
 };
 
 // ── Context ──
@@ -419,6 +426,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
       agentStepMode: state.agentStepMode,
       maxIterations: state.maxIterations,
       shikiTheme: state.shikiTheme,
+      includeConversationHistory: state.includeConversationHistory,
     }));
   }, [
     state.providerMode,
@@ -429,7 +437,8 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     state.agentMode,
     state.agentStepMode,
     state.maxIterations,
-    state.shikiTheme
+    state.shikiTheme,
+    state.includeConversationHistory
   ]);
 
   const activeConversation = state.conversations.find(
@@ -607,12 +616,13 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'CLEAR_AGENT_STEPS', conversationId: convId });
     dispatch({ type: 'SET_STREAMING_STATE', state: 'thinking' });
 
-    // Get current messages for context
     const currentConv = state.conversations.find(c => c.id === convId);
-    const contextMessages = [
-      ...(currentConv?.messages.map(m => ({ role: m.role, content: m.content })) ?? []),
-      { role: 'user' as const, content }
-    ];
+    const contextMessages = state.includeConversationHistory
+      ? [
+          ...(currentConv?.messages.map(m => ({ role: m.role, content: m.content })) ?? []),
+          { role: 'user' as const, content }
+        ]
+      : [{ role: 'user' as const, content }];
 
     // Abort previous stream
     abortRef.current?.abort();
@@ -639,6 +649,7 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
           agentMode: state.agentMode,
           agentStepMode: state.agentStepMode,
           maxIterations: state.maxIterations,
+          includeConversationHistory: state.includeConversationHistory,
           token: token || undefined,
         }));
       };

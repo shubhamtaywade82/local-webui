@@ -22,6 +22,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [agentStepMode, setAgentStepMode] = useState(state.agentStepMode);
   const [maxIterations, setMaxIterations] = useState(state.maxIterations);
   const [shikiTheme, setShikiTheme] = useState((state as any).shikiTheme || 'github-dark');
+  const [includeConversationHistory, setIncludeConversationHistory] = useState(state.includeConversationHistory);
 
   useEffect(() => {
     setModelsByProvider({
@@ -48,6 +49,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     dispatch({ type: 'SET_AGENT_STEP_MODE', mode: agentStepMode });
     dispatch({ type: 'SET_MAX_ITERATIONS', count: maxIterations });
     dispatch({ type: 'SET_SHIKI_THEME', theme: shikiTheme });
+    if (state.includeConversationHistory !== includeConversationHistory) {
+      dispatch({ type: 'SET_INCLUDE_CONVERSATION_HISTORY', value: includeConversationHistory });
+    }
     onClose();
   };
 
@@ -137,6 +141,27 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 style={{
                   left: isThinkingEnabled ? '22px' : '2px'
                 }}
+              />
+            </button>
+          </div>
+
+          {/* Chat context: prior turns vs current message only */}
+          <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+            <div>
+              <div className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Include chat history</div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                When off, each request sends only your latest message to the model (lower tokens; sidebar thread is unchanged).
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIncludeConversationHistory(!includeConversationHistory)}
+              className="relative w-10 h-5 rounded-full transition-colors flex-shrink-0 outline-none"
+              style={{ background: includeConversationHistory ? 'var(--accent)' : 'var(--bg-surface)' }}
+            >
+              <span
+                className="absolute top-[2px] w-[16px] h-[16px] rounded-full bg-white transition-transform duration-200"
+                style={{ left: includeConversationHistory ? '22px' : '2px' }}
               />
             </button>
           </div>

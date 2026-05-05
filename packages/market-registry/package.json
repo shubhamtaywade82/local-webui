@@ -1,0 +1,12 @@
+{
+  "name": "@workspace/market-registry",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "types": "index.ts",
+  "dependencies": {
+    "@workspace/coindcx-client": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
