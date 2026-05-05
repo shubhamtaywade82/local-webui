@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Bot, User, ChevronDown, ChevronRight, Brain, Clock, Copy, Check
 } from 'lucide-react';
@@ -79,12 +79,28 @@ function splitRedactedThinking(raw: string): { thinking: string | null; body: st
     return { thinking: thinking.length > 0 ? thinking : null, body };
   }
 
-  const body = (raw.slice(0, openIdx) + afterOpen).trim();
-  return { thinking: null, body };
+  // Open tag seen but close not yet (typical while SSE is streaming): keep tail in thinking, not body.
+  const thinking = afterOpen;
+  const body = raw.slice(0, openIdx).trim();
+  return {
+    thinking: thinking.length > 0 ? thinking : null,
+    body,
+  };
 }
 
-function ThinkingSection({ thinkingText }: { thinkingText: string }) {
+function ThinkingSection({
+  thinkingText,
+  streaming,
+}: {
+  thinkingText: string;
+  /** While tokens arrive, keep the panel expanded so thinking is visible without an extra click. */
+  streaming?: boolean;
+}) {
   const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => {
+    if (streaming) setIsOpen(true);
+  }, [streaming]);
+  const expanded = streaming || isOpen;
   const thinkContent = thinkingText.trim();
   if (!thinkContent) return null;
 
@@ -94,7 +110,7 @@ function ThinkingSection({ thinkingText }: { thinkingText: string }) {
       style={{ border: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)' }}
     >
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => !streaming && setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between px-3 py-2 transition-colors hover:bg-white/[0.02] group"
       >
         <div className="flex items-center gap-1.5">
@@ -102,13 +118,18 @@ function ThinkingSection({ thinkingText }: { thinkingText: string }) {
           <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
             Thinking Process
           </span>
+          {streaming && (
+            <span className="text-[9px] font-medium normal-case tracking-normal" style={{ color: 'var(--accent)' }}>
+              · streaming
+            </span>
+          )}
         </div>
-        {isOpen
+        {expanded
           ? <ChevronDown size={14} style={{ color: 'var(--text-muted)' }} />
           : <ChevronRight size={14} style={{ color: 'var(--text-muted)' }} />
         }
       </button>
-      {isOpen && (
+      {expanded && (
         <div
           className="px-3 pb-3 text-xs leading-relaxed whitespace-pre-wrap"
           style={{
@@ -196,7 +217,10 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
           ) : (
             <>
               {showThinking && displayThinking && (
-                <ThinkingSection thinkingText={displayThinking} />
+                <ThinkingSection
+                  thinkingText={displayThinking}
+                  streaming={Boolean(message.isStreaming)}
+                />
               )}
 
               {/* Markdown Content */}
