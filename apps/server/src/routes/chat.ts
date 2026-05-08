@@ -337,21 +337,35 @@ function handleWs(connection: any, req: any) {
       let systemPromptText: string;
 
       if (isSimpleChat && !completionModel) {
-        const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
+        const base =
+          customSystemPrompt?.trim() ||
+          [
+            "You are a helpful assistant.",
+            "Answer the user in well-structured Markdown (headings, lists, and short paragraphs).",
+            "Be clear and complete; do not be overly brief.",
+          ].join(" ");
         systemPromptText = base;
         if (thinking) {
           systemPromptText += `\n\nTHINKING MODE ENABLED:
 You MUST reason step-by-step before providing your final answer.
-Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.`;
+Wrap your internal reasoning process entirely within <redacted_thinking>...</redacted_thinking> tags.
+After you close </redacted_thinking>, you MUST output the final user-visible answer (in Markdown).`;
         }
       } else if (completionModel) {
         if (isSimpleChat) {
-          const base = customSystemPrompt?.trim() || "You are a helpful assistant. Respond clearly and concisely.";
+          const base =
+            customSystemPrompt?.trim() ||
+            [
+              "You are a helpful assistant.",
+              "Answer the user in well-structured Markdown (headings, lists, and short paragraphs).",
+              "Be clear and complete; do not be overly brief.",
+            ].join(" ");
           systemPromptText = base;
           if (thinking) {
             systemPromptText += `\n\nTHINKING MODE ENABLED:
 You MUST reason step-by-step before providing your final answer.
-Wrap your internal reasoning process entirely within <think>...</think> tags.`;
+Wrap your internal reasoning process entirely within <think>...</think> tags.
+After you close </think>, you MUST output the final user-visible answer (in Markdown).`;
           }
         } else {
           systemPromptText = customSystemPrompt?.trim() || "";

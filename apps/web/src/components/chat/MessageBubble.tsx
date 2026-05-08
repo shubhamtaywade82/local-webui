@@ -56,8 +56,15 @@ function findThinkingEnd(afterOpen: string): { idx: number; len: number } | null
 /**
  * Split prompt-style thinking from the answer. Recognizes redacted_thinking / short think / reasoning
  * XML blocks, Harmony final-channel markers, and heading-based fallback while the close tag is still streaming.
+ *
+ * Important: if the model opens a thinking block but never closes it, we treat the tail as "thinking" while
+ * streaming, but once streaming is done we fall back to rendering the tail as the answer (otherwise the UI
+ * looks like it produced a very short/empty response).
  */
-function splitRedactedThinking(raw: string): { thinking: string | null; body: string } {
+function splitRedactedThinking(
+  raw: string,
+  opts?: { isStreaming?: boolean }
+): { thinking: string | null; body: string } {
   const open = findThinkingOpen(raw);
   if (!open) return { thinking: null, body: raw };
 
@@ -79,12 +86,20 @@ function splitRedactedThinking(raw: string): { thinking: string | null; body: st
     return { thinking: thinking.length > 0 ? thinking : null, body };
   }
 
-  // Open tag seen but close not yet (typical while SSE is streaming): keep tail in thinking, not body.
-  const thinking = afterOpen;
-  const body = raw.slice(0, openIdx).trim();
+  // Open tag seen but close not yet: while streaming, keep tail in thinking (not body).
+  // Once streaming is done, fall back to treating the tail as the visible body (strip the open tag)
+  // so the message bubble doesn't look "truncated".
+  const tail = afterOpen.trim();
+  const prefix = raw.slice(0, openIdx).trim();
+  if (opts?.isStreaming) {
+    return {
+      thinking: tail.length > 0 ? tail : null,
+      body: prefix,
+    };
+  }
   return {
-    thinking: thinking.length > 0 ? thinking : null,
-    body,
+    thinking: null,
+    body: [prefix, tail].filter(Boolean).join('\n\n'),
   };
 }
 
@@ -162,7 +177,7 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
   };
 
   const { thinking: splitThinking, body: bodyAfterThinking } = !isUser
-    ? splitRedactedThinking(message.content)
+    ? splitRedactedThinking(message.content, { isStreaming: Boolean(message.isStreaming) })
     : { thinking: null as string | null, body: message.content };
 
   const agentJsonThought =
