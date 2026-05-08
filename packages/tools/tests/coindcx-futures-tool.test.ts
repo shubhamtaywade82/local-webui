@@ -29,6 +29,13 @@ describe('CoinDCXFuturesTool', () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it('cancel_order is blocked when PLACE_ORDER is not enabled', async () => {
+    vi.stubEnv('PLACE_ORDER', '');
+    const result = await tool.execute({ action: 'cancel_order', order_id: 'x' });
+    expect(result).toContain('PLACE_ORDER');
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it('create_order requires pair', async () => {
     const result = await tool.execute({ action: 'create_order', side: 'buy', order_type: 'market_order', quantity: '1' });
     expect(result).toContain('pair required');

@@ -1,6 +1,7 @@
 /**
- * Kill-switch for creating new futures orders (REST `create` / execution engine).
- * Default: off unless PLACE_ORDER is explicitly enabled.
+ * Kill-switch for any CoinDCX futures **order** REST mutation: create, cancel, edit.
+ * Default: off unless PLACE_ORDER is explicitly enabled. When off, callers must not
+ * hit the exchange — use `assertPlaceOrderExchangeEnabled` before authenticated order POSTs.
  */
 export function isPlaceOrderEnvEnabled(): boolean {
   const v = process.env.PLACE_ORDER;
@@ -9,4 +10,16 @@ export function isPlaceOrderEnvEnabled(): boolean {
 }
 
 export const PLACE_ORDER_DISABLED_MESSAGE =
-  'Order placement is disabled. Set PLACE_ORDER=true in the server environment to allow creating futures orders.';
+  'CoinDCX order actions are disabled. Set PLACE_ORDER=true in the server environment to send create, cancel, or edit order requests to the exchange.';
+
+/**
+ * When PLACE_ORDER is off: log the would-be request and throw (no network).
+ */
+export function assertPlaceOrderExchangeEnabled(operation: string, details: Record<string, unknown>): void {
+  if (isPlaceOrderEnvEnabled()) return;
+  console.warn(
+    `[coindcx] PLACE_ORDER disabled — exchange order call skipped (dry run): ${operation}`,
+    JSON.stringify(details),
+  );
+  throw new Error(PLACE_ORDER_DISABLED_MESSAGE);
+}

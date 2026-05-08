@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import { assertPlaceOrderExchangeEnabled } from './placeOrderPolicy';
 import type {
   CreateOrderRequest,
   FuturesOrderResponse,
@@ -51,6 +52,7 @@ export class CoinDCXAuthClient {
   }
 
   async createOrder(req: CreateOrderRequest): Promise<FuturesOrderResponse> {
+    assertPlaceOrderExchangeEnabled('createOrder', { order: req });
     const data = await this.post<unknown>(
       '/exchange/v1/derivatives/futures/orders/create',
       { order: req },
@@ -60,10 +62,12 @@ export class CoinDCXAuthClient {
   }
 
   async cancelOrder(orderId: string): Promise<unknown> {
+    assertPlaceOrderExchangeEnabled('cancelOrder', { id: orderId });
     return this.post('/exchange/v1/derivatives/futures/orders/cancel', { id: orderId });
   }
 
   async editOrder(orderId: string, pricePerUnit: number): Promise<unknown> {
+    assertPlaceOrderExchangeEnabled('editOrder', { id: orderId, price_per_unit: pricePerUnit });
     return this.post('/exchange/v1/derivatives/futures/orders/edit', {
       id: orderId,
       price_per_unit: pricePerUnit,

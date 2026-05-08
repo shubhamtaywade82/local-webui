@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isPlaceOrderEnvEnabled } from './placeOrderPolicy';
+import { assertPlaceOrderExchangeEnabled, isPlaceOrderEnvEnabled } from './placeOrderPolicy';
 
 describe('isPlaceOrderEnvEnabled', () => {
   afterEach(() => {
@@ -21,5 +21,16 @@ describe('isPlaceOrderEnvEnabled', () => {
   it('returns false for other values', () => {
     vi.stubEnv('PLACE_ORDER', 'false');
     expect(isPlaceOrderEnvEnabled()).toBe(false);
+  });
+
+  it('assertPlaceOrderExchangeEnabled throws and does not throw when enabled', () => {
+    vi.stubEnv('PLACE_ORDER', '');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(() => assertPlaceOrderExchangeEnabled('testOp', { a: 1 })).toThrow(/PLACE_ORDER/);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+
+    vi.stubEnv('PLACE_ORDER', 'true');
+    expect(() => assertPlaceOrderExchangeEnabled('testOp', {})).not.toThrow();
   });
 });

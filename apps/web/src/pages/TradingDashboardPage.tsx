@@ -43,9 +43,68 @@ type MtfRow = { tf: string; close: number | null; volume: number | null; time: n
 const DEFAULT_PAIR = "B-BTC_USDT";
 const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"] as const;
 
-function parseDisplayPrice(s: string): number {
-  const n = parseFloat(String(s ?? "").replace(/,/g, ""));
-  return Number.isFinite(n) ? n : NaN;
+/** First three unique watchlist pairs, padded from defaults (for top ticker row). */
+function topTriplePairs(watchlist: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of watchlist) {
+    const p = normalizeFuturesPair(raw);
+    if (!p || seen.has(p) || out.length >= 3) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  for (const d of DEFAULT_WATCHLIST_PAIRS) {
+    if (out.length >= 3) break;
+    const p = normalizeFuturesPair(d);
+    if (p && !seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out.slice(0, 3);
+}
+
+function baseSymFromPairKey(pairKey: string): string {
+  const n = normalizeFuturesPair(pairKey);
+  if (!n) return "?";
+  return n.replace(/^B-/, "").replace(/_USDT$/i, "");
+}
+
+function pulseRowFromRt(pairKey: string, row: Record<string, unknown> | undefined): PulseRow {
+  const sym = baseSymFromPairKey(pairKey);
+  if (!row || typeof row !== "object") {
+    return { sym, price: "—", change: "—", trend: "Neutral", color: "var(--text-muted)" };
+  }
+  const lastNum = parseFloat(String(row.ls ?? row.last_price ?? ""));
+  const price =
+    Number.isFinite(lastNum) && lastNum > 0
+      ? lastNum.toLocaleString(undefined, { minimumFractionDigits: sym === "BTC" ? 1 : 2 })
+      : "—";
+  const chg = parseFloat(String(row.pc ?? ""));
+  const hasChg = Number.isFinite(chg);
+  const trend: PulseRow["trend"] = hasChg
+    ? chg > 2
+      ? "Strong Bull"
+      : chg > 0
+        ? "Bullish"
+        : chg > -2
+          ? "Neutral"
+          : "Bearish"
+    : "Neutral";
+  const color = hasChg
+    ? chg > 0
+      ? "var(--success)"
+      : chg < -2
+        ? "var(--error)"
+        : "var(--warning)"
+    : "var(--text-muted)";
+  return {
+    sym,
+    price,
+    change: hasChg ? `${chg > 0 ? "+" : ""}${chg.toFixed(1)}%` : "0%",
+    trend,
+    color,
+  };
 }
 
 function sortBookLevels(side: OrderBookSide, kind: "bid" | "ask", max: number) {
@@ -135,8 +194,9 @@ export default function TradingDashboardPage() {
   const [addPairDraft, setAddPairDraft] = useState("");
   const [pair, setPair] = useState(() => loadWatchlistPairs()[0] ?? DEFAULT_PAIR);
   const [barInterval, setBarInterval] = useState<string>("1h");
-  const [pulse, setPulse] = useState<PulseRow[]>([]);
-  const [wsLive, setWsLive] = useState(false);
+  /** Top-row tickers: first 3 watchlist pairs, prices from futures RT. */
+  const [pulseTopTiles, setPulseTopTiles] = useState<PulseRow[]>([]);
+  const [rtQuotesOk, setRtQuotesOk] = useState(false);
   const [rtCell, setRtCell] = useState<Record<string, unknown> | null>(null);
   const [book, setBook] = useState<OrderBookPayload | null>(null);
   const [bars, setBars] = useState<OhlcvBar[]>([]);
@@ -174,6 +234,8 @@ export default function TradingDashboardPage() {
     }
     return base;
   }, [instruments, pair, pairScope, watchlistPairs, rowFromPair]);
+
+  const topTripleKeys = useMemo(() => topTriplePairs(watchlistPairs), [watchlistPairs]);
 
   const pushLog = useCallback((line: string) => {
     setLogLines((prev) => {
@@ -313,6 +375,7 @@ export default function TradingDashboardPage() {
   const refreshTickerPanels = useCallback(async () => {
     setError(null);
     try {
+      const triple = topTriplePairs(watchlistPairs);
       const [rtRes, obRes, trRes] = await Promise.all([
         fetch("/api/trading/futures/rt"),
         fetch(`/api/trading/futures/orderbook?pair=${encodeURIComponent(pair)}&depth=20`),
@@ -320,8 +383,14 @@ export default function TradingDashboardPage() {
       ]);
       if (rtRes.ok) {
         const rtJson = (await rtRes.json()) as { prices?: Record<string, Record<string, unknown>> };
-        const cell = rtJson.prices?.[pair] ?? null;
+        const prices = rtJson.prices;
+        const cell = prices?.[pair] ?? null;
         setRtCell(cell);
+        setRtQuotesOk(true);
+        setPulseTopTiles(triple.map((pKey) => pulseRowFromRt(pKey, prices?.[pKey])));
+      } else {
+        setRtQuotesOk(false);
+        setPulseTopTiles(triple.map((pKey) => pulseRowFromRt(pKey, undefined)));
       }
       if (obRes.ok) {
         setBook((await obRes.json()) as OrderBookPayload);
@@ -334,9 +403,10 @@ export default function TradingDashboardPage() {
         setError("Could not refresh market data (upstream or network).");
       }
     } catch (e) {
+      setRtQuotesOk(false);
       setError((e as Error).message);
     }
-  }, [pair]);
+  }, [pair, watchlistPairs]);
 
   useEffect(() => {
     void refreshTickerPanels();
@@ -345,83 +415,6 @@ export default function TradingDashboardPage() {
     }, 7_000);
     return () => globalThis.clearInterval(id);
   }, [refreshTickerPanels]);
-
-  useEffect(() => {
-    let lastKnown: Record<string, number> = {};
-    const loadPulse = async () => {
-      try {
-        const res = await fetch("/api/market/pulse");
-        if (res.ok) {
-          const data = (await res.json()) as { pulse?: PulseRow[] };
-          const rows = Array.isArray(data.pulse) ? data.pulse : [];
-          setPulse(rows);
-          rows.forEach((p) => {
-            const n = parseDisplayPrice(p.price);
-            if (Number.isFinite(n)) lastKnown[p.sym] = n;
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    void loadPulse();
-
-    const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProto}//${window.location.host}/api/market/ws`;
-    let socket: WebSocket | null = null;
-    let reconnect: ReturnType<typeof globalThis.setTimeout> | undefined;
-
-    const connect = () => {
-      socket?.close();
-      const ws = new WebSocket(wsUrl);
-      socket = ws;
-      ws.onopen = () => {
-        setWsLive(true);
-      };
-      ws.onclose = () => {
-        setWsLive(false);
-        reconnect = globalThis.setTimeout(connect, 3_000);
-      };
-      ws.onerror = () => {
-        setWsLive(false);
-      };
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data as string) as { type?: string; data?: unknown };
-          if (msg.type === "initial" && Array.isArray(msg.data)) {
-            setPulse(msg.data as PulseRow[]);
-            (msg.data as PulseRow[]).forEach((p) => {
-              const n = parseDisplayPrice(p.price);
-              if (Number.isFinite(n)) lastKnown[p.sym] = n;
-            });
-            return;
-          }
-          if (msg.type === "update" && msg.data && typeof msg.data === "object") {
-            const update = msg.data as PulseRow & { sym?: string };
-            const sym = String(update.sym ?? "").toUpperCase();
-            if (!["BTC", "ETH", "SOL"].includes(sym)) return;
-            const current = parseDisplayPrice(String(update.price ?? ""));
-            if (!Number.isFinite(current)) return;
-            lastKnown[sym] = current;
-            setPulse((prevRows) => {
-              const next = [...prevRows];
-              const idx = next.findIndex((p) => p.sym === sym);
-              if (idx >= 0) next[idx] = { ...next[idx], ...update, sym };
-              else next.push({ ...update, sym });
-              return next;
-            });
-          }
-        } catch {
-          /* ignore */
-        }
-      };
-    };
-    connect();
-    return () => {
-      if (reconnect !== undefined) globalThis.clearTimeout(reconnect);
-      socket?.close();
-    };
-  }, []);
 
   const closes = useMemo(() => bars.map((b) => b.close).filter((n) => Number.isFinite(n)), [bars]);
 
@@ -454,7 +447,7 @@ export default function TradingDashboardPage() {
             <div className="text-[10px] truncate flex items-center gap-2" style={{ color: "var(--text-muted)" }}>
               <span className="inline-flex items-center gap-1">
                 <Activity size={10} />
-                Market WS (BTC/ETH/SOL): {wsLive ? "live" : "offline"}
+                Top row quotes (RT): {rtQuotesOk ? "~7s refresh" : "…"}
               </span>
               <span>·</span>
               <a
@@ -485,30 +478,53 @@ export default function TradingDashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {pulse.length === 0 ? (
-            <div className="col-span-full text-xs" style={{ color: "var(--text-muted)" }}>
-              Loading pulse… (server must be running with CoinDCX market stream)
-            </div>
-          ) : (
-            pulse.map((p) => (
-              <div
-                key={p.sym}
-                className="rounded-xl p-4 border"
-                style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}
-              >
-                <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                  {p.sym} perpetual
-                </div>
-                <div className="text-xl font-semibold tabular-nums mt-1" style={{ color: "var(--text-primary)" }}>
-                  {p.price}
-                </div>
-                <div className="text-xs mt-1" style={{ color: p.color ?? "var(--text-secondary)" }}>
-                  {p.change} · {p.trend ?? ""}
-                </div>
-              </div>
-            ))
-          )}
+        <div className="space-y-1">
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            First three <strong>watchlist</strong> pairs (reorder by editing the list below). Click a card to focus chart,
+            book, and SMC.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {topTripleKeys.map((pairKey, i) => {
+              const p = pulseTopTiles[i] ?? {
+                sym: baseSymFromPairKey(pairKey),
+                price: "…",
+                change: "—",
+                trend: "Neutral" as const,
+                color: "var(--text-muted)",
+              };
+              const focused = normalizeFuturesPair(pair) === normalizeFuturesPair(pairKey);
+              return (
+                <button
+                  key={pairKey}
+                  type="button"
+                  onClick={() => setPair(pairKey)}
+                  className="rounded-xl p-4 border text-left w-full transition-colors hover:bg-white/[0.03]"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    borderColor: focused ? "var(--accent)" : "var(--border-subtle)",
+                    boxShadow: focused ? "0 0 0 1px var(--accent-muted)" : undefined,
+                    cursor: "pointer",
+                  }}
+                  title={`Focus ${pairKey}`}
+                >
+                  <div className="text-[10px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                    {p.sym} perpetual
+                  </div>
+                  <div className="text-xl font-semibold tabular-nums mt-1" style={{ color: "var(--text-primary)" }}>
+                    {p.price}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: p.color ?? "var(--text-secondary)" }}>
+                    {p.change} · {p.trend ?? ""}
+                  </div>
+                  {focused && (
+                    <div className="text-[9px] mt-2 font-medium" style={{ color: "var(--accent)" }}>
+                      Focused
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div
@@ -519,7 +535,7 @@ export default function TradingDashboardPage() {
             <span style={{ color: "var(--text-muted)" }}>FOCUS</span> {pair}
           </span>
           <span>
-            <span style={{ color: "var(--text-muted)" }}>WS</span> {wsLive ? "OK" : "—"}
+            <span style={{ color: "var(--text-muted)" }}>RT</span> {rtQuotesOk ? "OK" : "—"}
           </span>
           <span>
             <span style={{ color: "var(--text-muted)" }}>API</span>{" "}

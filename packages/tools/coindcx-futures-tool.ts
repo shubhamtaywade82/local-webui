@@ -1,5 +1,5 @@
 import { createHmac } from 'crypto';
-import { isPlaceOrderEnvEnabled, PLACE_ORDER_DISABLED_MESSAGE } from '@workspace/coindcx-client';
+import { assertPlaceOrderExchangeEnabled } from '@workspace/coindcx-client';
 import { BaseTool, ToolSchema } from './types';
 
 const BASE_URL = 'https://api.coindcx.com';
@@ -72,7 +72,7 @@ export class CoinDCXFuturesTool extends BaseTool {
   readonly name = 'coindcx_futures';
   readonly description =
     'AUTHENTICATED ONLY: place/cancel/edit **your** CoinDCX futures orders, positions, margin, leverage. ' +
-    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. Creating orders additionally requires PLACE_ORDER=true. **Do not use** for market price, charts, or intraday trend — use **coindcx** or **smc_analysis** instead. ' +
+    'Requires COINDCX_API_KEY + COINDCX_API_SECRET. **Order** actions (create / cancel / edit) require PLACE_ORDER=true or they are logged only (no exchange). **Do not use** for market price, charts, or intraday trend — use **coindcx** or **smc_analysis** instead. ' +
     'Pair format: B-BTC_USDT, B-ETH_USDT. Actions: list_orders | create_order | cancel_order | ' +
     'edit_order | positions | update_leverage | add_margin | remove_margin';
 
@@ -168,9 +168,6 @@ export class CoinDCXFuturesTool extends BaseTool {
         }
 
         case 'create_order': {
-          if (!isPlaceOrderEnvEnabled()) {
-            return PLACE_ORDER_DISABLED_MESSAGE;
-          }
           if (!pair) return 'Error: pair required (e.g. B-BTC_USDT)';
           if (!args.side) return 'Error: side required (buy or sell)';
           if (!args.order_type) return 'Error: order_type required (market_order or limit_order)';
@@ -188,12 +185,14 @@ export class CoinDCXFuturesTool extends BaseTool {
           if (args.price) order.price_per_unit = parseFloat(String(args.price));
           if (args.leverage) order.leverage = parseInt(String(args.leverage), 10);
 
+          assertPlaceOrderExchangeEnabled('create_order', { order });
           const data = await authPost('/exchange/v1/derivatives/futures/orders/create', { order });
           return `Order created:\n${formatOrders(data)}`;
         }
 
         case 'cancel_order': {
           if (!args.order_id) return 'Error: order_id required';
+          assertPlaceOrderExchangeEnabled('cancel_order', { id: String(args.order_id) });
           const data = await authPost('/exchange/v1/derivatives/futures/orders/cancel', {
             id: String(args.order_id),
           });
@@ -203,9 +202,14 @@ export class CoinDCXFuturesTool extends BaseTool {
         case 'edit_order': {
           if (!args.order_id) return 'Error: order_id required';
           if (!args.price) return 'Error: price required for edit_order';
+          const pricePerUnit = parseFloat(String(args.price));
+          assertPlaceOrderExchangeEnabled('edit_order', {
+            id: String(args.order_id),
+            price_per_unit: pricePerUnit,
+          });
           const data = await authPost('/exchange/v1/derivatives/futures/orders/edit', {
             id: String(args.order_id),
-            price_per_unit: parseFloat(String(args.price)),
+            price_per_unit: pricePerUnit,
           });
           return `Order updated:\n${JSON.stringify(data, null, 2)}`;
         }
